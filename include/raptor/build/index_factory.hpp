@@ -68,14 +68,13 @@ private:
         raptor_index<> index{*arguments};
         arguments->index_allocation_timer.stop();
 
-        auto worker = [&](auto && zipped_view)
+        auto worker = [&](auto && zipped)
         {
             seqan::hibf::serial_timer local_timer{};
             auto & ibf = index.ibf();
             local_timer.start();
             // https://godbolt.org/z/PeKnxzjn1
-            for (auto && zipped : zipped_view)
-            {
+            //{
                 std::visit(
                     [&](auto const & reader)
                     {
@@ -92,7 +91,7 @@ private:
                                                 });
                     },
                     reader);
-            }
+            //}
             local_timer.stop();
             arguments->user_bin_io_timer += local_timer;
             arguments->fill_ibf_timer += local_timer;

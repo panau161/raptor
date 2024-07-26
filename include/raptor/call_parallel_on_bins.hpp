@@ -15,7 +15,6 @@
 #include <omp.h>
 #include <vector>
 
-#include <hibf/contrib/std/chunk_view.hpp>
 #include <hibf/contrib/std/zip_view.hpp>
 #include <hibf/misc/divide_and_ceil.hpp>
 
@@ -28,20 +27,13 @@ void call_parallel_on_bins(algorithm_t && worker,
                            uint8_t const threads)
 {
     size_t const number_of_bins = bin_paths.size();
-    // clang-format off
-    size_t const chunk_size = std::clamp<size_t>(
-        std::bit_ceil(seqan::hibf::divide_and_ceil(number_of_bins, threads)),
-        8u,
-        64u);
-    auto chunked_view = seqan::stl::views::zip(bin_paths, std::views::iota(0u, number_of_bins))
-                      | seqan::stl::views::chunk(chunk_size);
-    // clang-format on
-    size_t const number_of_chunks = std::ranges::size(chunked_view);
+
+    auto zipped_view = seqan::stl::views::zip(bin_paths, std::views::iota(0u, number_of_bins));
 
 #pragma omp parallel for schedule(dynamic) num_threads(threads)
-    for (size_t i = 0; i < number_of_chunks; ++i)
+    for (size_t i = 0; i < number_of_bins; ++i)
     {
-        std::invoke(worker, chunked_view[i]);
+        std::invoke(worker, zipped_view[i]);
     }
 }
 

@@ -39,14 +39,14 @@ size_t kmer_count_from_minimiser_files(std::vector<std::vector<std::string>> con
         }
     };
 
-    auto worker = [&callback](auto && zipped_view)
+    auto worker = [&callback](auto && zipped)
     {
         std::filesystem::path minimiser_file{};
         std::filesystem::path biggest_file{};
         size_t max_filesize{};
 
-        for (auto && [file_names, bin_number] : zipped_view)
-        {
+        auto && [file_names, bin_number] = zipped;
+        //{
             for (auto && file_name : file_names)
             {
                 minimiser_file = file_name;
@@ -57,7 +57,7 @@ size_t kmer_count_from_minimiser_files(std::vector<std::vector<std::string>> con
                     biggest_file = minimiser_file;
                 }
             }
-        }
+        //}
 
         callback(biggest_file, max_filesize);
     };
@@ -94,9 +94,9 @@ size_t kmer_count_from_sequence_files(std::vector<std::vector<std::string>> cons
         }
     };
 
-    auto worker = [&callback, &reader](auto && zipped_view)
+    auto worker = [&callback, &reader](auto && zipped)
     {
-        for (auto && [file_names, bin_number] : zipped_view)
+        auto && [file_names, bin_number] = zipped;
             reader.on_hash(file_names, callback);
     };
 
