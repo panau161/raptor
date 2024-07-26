@@ -130,7 +130,7 @@ void compute_minimiser(prepare_arguments const & arguments)
 
     auto zipped_view = seqan::stl::views::zip(arguments.bin_path, std::views::iota(0u, number_of_bins));
 
-#pragma omp parallel for schedule(dynamic) num_threads(arguments.threads)
+#pragma omp parallel for schedule(guided) num_threads(arguments.threads)
     for (size_t i = 0; i < number_of_bins; ++i)
     {
         std::invoke(worker, arguments.bin_path[i]);

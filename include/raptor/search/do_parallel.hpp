@@ -22,7 +22,7 @@ namespace raptor
 template <typename algorithm_t>
 void do_parallel(algorithm_t && worker, size_t const num_records, size_t const threads)
 {
-#pragma omp parallel for schedule(dynamic) num_threads(threads)
+#pragma omp parallel for schedule(guided) num_threads(threads)
     for (size_t i = 0; i < num_records; ++i)
     {
         std::invoke(worker, i);
