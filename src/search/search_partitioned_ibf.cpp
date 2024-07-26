@@ -69,22 +69,22 @@ void search_partitioned_ibf(search_arguments const & arguments)
 
         size_t part{};
 
-        auto count_task = [&](size_t const start, size_t const extent)
+        auto count_task = [&](size_t const record_id)
         {
             seqan::hibf::serial_timer local_compute_minimiser_timer{};
             seqan::hibf::serial_timer local_query_ibf_timer{};
 
             auto & ibf = index.ibf();
             auto counter = ibf.template counting_agent<uint16_t>();
-            size_t counter_id = start;
+            size_t counter_id = record_id;
             std::vector<uint64_t> minimiser;
 
             auto hash_view = seqan3::views::minimiser_hash(arguments.shape,
                                                            seqan3::window_size{arguments.window_size},
                                                            seqan3::seed{adjust_seed(arguments.shape_weight)});
 
-            for (auto && [id, seq] : std::span{records.data() + start, extent})
-            {
+            auto && [id, seq] = records[record_id];
+            //{
                 auto minimiser_view = seq | hash_view | std::views::common;
                 local_compute_minimiser_timer.start();
                 minimiser.assign(minimiser_view.begin(), minimiser_view.end());
@@ -102,7 +102,7 @@ void search_partitioned_ibf(search_arguments const & arguments)
                 local_query_ibf_timer.start();
                 counts[counter_id++] += counter.bulk_count(filtered);
                 local_query_ibf_timer.stop();
-            }
+            //}
 
             arguments.compute_minimiser_timer += local_compute_minimiser_timer;
             arguments.query_ibf_timer += local_query_ibf_timer;
@@ -124,7 +124,7 @@ void search_partitioned_ibf(search_arguments const & arguments)
         assert(part == arguments.parts - 1u);
         load_index(index, arguments, part);
 
-        auto output_task = [&](size_t const start, size_t const extent)
+        auto output_task = [&](size_t const record_id)
         {
             seqan::hibf::serial_timer local_compute_minimiser_timer{};
             seqan::hibf::serial_timer local_query_ibf_timer{};
@@ -132,7 +132,7 @@ void search_partitioned_ibf(search_arguments const & arguments)
 
             auto & ibf = index.ibf();
             auto counter = ibf.template counting_agent<uint16_t>();
-            size_t counter_id = start;
+            size_t counter_id = record_id;
             std::string result_string{};
             std::vector<uint64_t> minimiser;
 
@@ -140,8 +140,8 @@ void search_partitioned_ibf(search_arguments const & arguments)
                                                               seqan3::window_size{arguments.window_size},
                                                               seqan3::seed{adjust_seed(arguments.shape_weight)});
 
-            for (auto && [id, seq] : std::span{records.data() + start, extent})
-            {
+            auto && [id, seq] = records[record_id];
+            //{
                 result_string.clear();
                 result_string += id;
                 result_string += '\t';
@@ -184,7 +184,7 @@ void search_partitioned_ibf(search_arguments const & arguments)
 
                 synced_out.write(result_string);
                 local_generate_results_timer.stop();
-            }
+            //}
 
             arguments.compute_minimiser_timer += local_compute_minimiser_timer;
             arguments.query_ibf_timer += local_query_ibf_timer;
