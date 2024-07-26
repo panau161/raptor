@@ -53,88 +53,79 @@ void compute_minimiser(prepare_arguments const & arguments)
     file_reader<file_types::sequence> const reader{arguments.shape, arguments.window_size};
     raptor::cutoff const cutoffs{arguments};
 
-    auto worker = [&](auto && file_names)
-    {
-        seqan::hibf::serial_timer local_compute_minimiser_timer{};
-        seqan::hibf::serial_timer local_write_minimiser_timer{};
-        seqan::hibf::serial_timer local_write_header_timer{};
-
-        //{
-            std::filesystem::path const file_name{file_names[0]};
-            std::filesystem::path output_path = get_output_path(arguments.out_dir, file_name);
-
-            std::filesystem::path const minimiser_file =
-                std::filesystem::path{output_path}.replace_extension("minimiser");
-            std::filesystem::path const progress_file =
-                std::filesystem::path{output_path}.replace_extension("in_progress");
-            std::filesystem::path const header_file = std::filesystem::path{output_path}.replace_extension("header");
-
-            // If we are already done with this file, we can skip it. Otherwise, we create a ".in_progress" file to keep
-            // track of whether the minimiser computation was successful.
-            bool const already_done = std::filesystem::exists(minimiser_file) && std::filesystem::exists(header_file)
-                                   && !std::filesystem::exists(progress_file);
-
-            if (!already_done)
-                std::ofstream outfile{progress_file, std::ios::binary};
-
-            // The hash table stores how often a minimiser appears. It does not matter whether a minimiser appears
-            // 50 times or 2000 times, it is stored regardless because the biggest cutoff value is 50. Hence,
-            // the hash table stores only values up to 254 to save memory.
-            robin_hood::unordered_map<uint64_t, uint8_t> minimiser_table{};
-            // The map is (re-)constructed for each file. The alternative is to construct it once for each thread
-            // and clear+reuse it for every file that a thread works on. However, this dramatically increases
-            // memory consumption because the map will stay as big as needed for the biggest encountered file.
-
-            local_compute_minimiser_timer.start();
-            reader.for_each_hash(file_names,
-                                 [&](auto && hash)
-                                 {
-                                     minimiser_table[hash] = std::min<uint8_t>(254u, minimiser_table[hash] + 1);
-                                 });
-            local_compute_minimiser_timer.stop();
-
-            uint8_t const cutoff = cutoffs.get(file_name);
-            uint64_t count{};
-
-            local_write_minimiser_timer.start();
-            {
-                std::ofstream outfile{minimiser_file, std::ios::binary};
-                for (auto && [hash, occurrences] : minimiser_table)
-                {
-                    if (occurrences >= cutoff)
-                    {
-                        outfile.write(reinterpret_cast<char const *>(&hash), sizeof(hash));
-                        ++count;
-                    }
-                }
-            }
-            local_write_minimiser_timer.stop();
-
-            local_write_header_timer.start();
-            {
-                std::ofstream headerfile{header_file};
-                headerfile << arguments.shape.to_string() << '\t' << arguments.window_size << '\t'
-                           << static_cast<uint16_t>(cutoff) << '\t' << count << '\n';
-            }
-            local_write_header_timer.stop();
-
-            std::filesystem::remove(progress_file);
-        //}
-
-        arguments.compute_minimiser_timer += local_compute_minimiser_timer;
-        arguments.write_minimiser_timer += local_write_minimiser_timer;
-        arguments.write_header_timer += local_write_header_timer;
-    };
-
-    size_t const number_of_bins = arguments.bin_path.size();
-
-    auto zipped_view = seqan::stl::views::zip(arguments.bin_path, std::views::iota(0u, number_of_bins));
+    seqan::hibf::serial_timer local_compute_minimiser_timer{};
+    seqan::hibf::serial_timer local_write_minimiser_timer{};
+    seqan::hibf::serial_timer local_write_header_timer{};
 
 #pragma omp parallel for schedule(guided) num_threads(arguments.threads)
-    for (size_t i = 0; i < number_of_bins; ++i)
+    for (size_t i = 0; i < arguments.bin_path.size(); ++i)
     {
-        std::invoke(worker, arguments.bin_path[i]);
+        auto file_names = arguments.bin_path[i];
+
+        std::filesystem::path const file_name{file_names[0]};
+        std::filesystem::path output_path = get_output_path(arguments.out_dir, file_name);
+
+        std::filesystem::path const minimiser_file = std::filesystem::path{output_path}.replace_extension("minimiser");
+        std::filesystem::path const progress_file = std::filesystem::path{output_path}.replace_extension("in_progress");
+        std::filesystem::path const header_file = std::filesystem::path{output_path}.replace_extension("header");
+
+        // If we are already done with this file, we can skip it. Otherwise, we create a ".in_progress" file to keep
+        // track of whether the minimiser computation was successful.
+        bool const already_done = std::filesystem::exists(minimiser_file) && std::filesystem::exists(header_file)
+                               && !std::filesystem::exists(progress_file);
+
+        if (already_done)
+            continue;
+        else
+            std::ofstream outfile{progress_file, std::ios::binary};
+
+        // The hash table stores how often a minimiser appears. It does not matter whether a minimiser appears
+        // 50 times or 2000 times, it is stored regardless because the biggest cutoff value is 50. Hence,
+        // the hash table stores only values up to 254 to save memory.
+        robin_hood::unordered_map<uint64_t, uint8_t> minimiser_table{};
+        // The map is (re-)constructed for each file. The alternative is to construct it once for each thread
+        // and clear+reuse it for every file that a thread works on. However, this dramatically increases
+        // memory consumption because the map will stay as big as needed for the biggest encountered file.
+
+        local_compute_minimiser_timer.start();
+        reader.for_each_hash(file_names,
+                             [&](auto && hash)
+                             {
+                                 minimiser_table[hash] = std::min<uint8_t>(254u, minimiser_table[hash] + 1);
+                             });
+        local_compute_minimiser_timer.stop();
+
+        uint8_t const cutoff = cutoffs.get(file_name);
+        uint64_t count{};
+
+        local_write_minimiser_timer.start();
+        {
+            std::ofstream outfile{minimiser_file, std::ios::binary};
+            for (auto && [hash, occurrences] : minimiser_table)
+            {
+                if (occurrences >= cutoff)
+                {
+                    outfile.write(reinterpret_cast<char const *>(&hash), sizeof(hash));
+                    ++count;
+                }
+            }
+        }
+        local_write_minimiser_timer.stop();
+
+        local_write_header_timer.start();
+        {
+            std::ofstream headerfile{header_file};
+            headerfile << arguments.shape.to_string() << '\t' << arguments.window_size << '\t'
+                       << static_cast<uint16_t>(cutoff) << '\t' << count << '\n';
+        }
+        local_write_header_timer.stop();
+
+        std::filesystem::remove(progress_file);
     }
+
+    arguments.compute_minimiser_timer += local_compute_minimiser_timer;
+    arguments.write_minimiser_timer += local_write_minimiser_timer;
+    arguments.write_header_timer += local_write_header_timer;
 
     write_list_file(arguments);
 }
