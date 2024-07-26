@@ -17,7 +17,6 @@
 #include <raptor/adjust_seed.hpp>
 #include <raptor/build/partition_config.hpp>
 #include <raptor/dna4_traits.hpp>
-#include <raptor/search/do_parallel.hpp>
 #include <raptor/search/load_index.hpp>
 #include <raptor/search/search_partitioned_ibf.hpp>
 #include <raptor/search/sync_out.hpp>
@@ -69,22 +68,25 @@ void search_partitioned_ibf(search_arguments const & arguments)
 
         size_t part{};
 
-        auto count_task = [&](size_t const record_id)
+        auto count_task = [&]()
         {
             seqan::hibf::serial_timer local_compute_minimiser_timer{};
             seqan::hibf::serial_timer local_query_ibf_timer{};
 
             auto & ibf = index.ibf();
             auto counter = ibf.template counting_agent<uint16_t>();
-            size_t counter_id = record_id;
+            size_t counter_id = 0;
             std::vector<uint64_t> minimiser;
 
             auto hash_view = seqan3::views::minimiser_hash(arguments.shape,
                                                            seqan3::window_size{arguments.window_size},
                                                            seqan3::seed{adjust_seed(arguments.shape_weight)});
 
-            auto && [id, seq] = records[record_id];
-            //{
+#pragma omp parallel for schedule(guided) num_threads(arguments.threads)
+            for (size_t i = 0; i < records.size(); ++i)
+            {
+                auto && [id, seq] = records[i];
+
                 auto minimiser_view = seq | hash_view | std::views::common;
                 local_compute_minimiser_timer.start();
                 minimiser.assign(minimiser_view.begin(), minimiser_view.end());
@@ -102,14 +104,14 @@ void search_partitioned_ibf(search_arguments const & arguments)
                 local_query_ibf_timer.start();
                 counts[counter_id++] += counter.bulk_count(filtered);
                 local_query_ibf_timer.stop();
-            //}
+            }
 
             arguments.compute_minimiser_timer += local_compute_minimiser_timer;
             arguments.query_ibf_timer += local_query_ibf_timer;
         };
 
         arguments.parallel_search_timer.start();
-        do_parallel(count_task, records.size(), arguments.threads);
+        count_task();
         arguments.parallel_search_timer.stop();
         ++part;
 
@@ -117,14 +119,14 @@ void search_partitioned_ibf(search_arguments const & arguments)
         {
             load_index(index, arguments, part);
             arguments.parallel_search_timer.start();
-            do_parallel(count_task, records.size(), arguments.threads);
+            count_task();
             arguments.parallel_search_timer.stop();
         }
 
         assert(part == arguments.parts - 1u);
         load_index(index, arguments, part);
 
-        auto output_task = [&](size_t const record_id)
+        auto output_task = [&]()
         {
             seqan::hibf::serial_timer local_compute_minimiser_timer{};
             seqan::hibf::serial_timer local_query_ibf_timer{};
@@ -132,7 +134,7 @@ void search_partitioned_ibf(search_arguments const & arguments)
 
             auto & ibf = index.ibf();
             auto counter = ibf.template counting_agent<uint16_t>();
-            size_t counter_id = record_id;
+            size_t counter_id = 0;
             std::string result_string{};
             std::vector<uint64_t> minimiser;
 
@@ -140,8 +142,11 @@ void search_partitioned_ibf(search_arguments const & arguments)
                                                               seqan3::window_size{arguments.window_size},
                                                               seqan3::seed{adjust_seed(arguments.shape_weight)});
 
-            auto && [id, seq] = records[record_id];
-            //{
+#pragma omp parallel for schedule(guided) num_threads(arguments.threads)
+            for (size_t i = 0; i < records.size(); ++i)
+            {
+                auto && [id, seq] = records[i];
+
                 result_string.clear();
                 result_string += id;
                 result_string += '\t';
@@ -184,7 +189,7 @@ void search_partitioned_ibf(search_arguments const & arguments)
 
                 synced_out.write(result_string);
                 local_generate_results_timer.stop();
-            //}
+            }
 
             arguments.compute_minimiser_timer += local_compute_minimiser_timer;
             arguments.query_ibf_timer += local_query_ibf_timer;
@@ -192,7 +197,7 @@ void search_partitioned_ibf(search_arguments const & arguments)
         };
 
         arguments.parallel_search_timer.start();
-        do_parallel(output_task, records.size(), arguments.threads);
+        output_task();
         arguments.parallel_search_timer.stop();
     }
 }
