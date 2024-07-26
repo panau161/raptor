@@ -13,7 +13,6 @@
 #include <seqan3/search/views/minimiser_hash.hpp>
 
 #include <hibf/contrib/robin_hood.hpp>
-#include <hibf/contrib/std/chunk_view.hpp>
 #include <hibf/contrib/std/zip_view.hpp>
 #include <hibf/misc/divide_and_ceil.hpp>
 
@@ -54,14 +53,13 @@ void compute_minimiser(prepare_arguments const & arguments)
     file_reader<file_types::sequence> const reader{arguments.shape, arguments.window_size};
     raptor::cutoff const cutoffs{arguments};
 
-    auto worker = [&](auto && zipped_view)
+    auto worker = [&](auto && file_names)
     {
         seqan::hibf::serial_timer local_compute_minimiser_timer{};
         seqan::hibf::serial_timer local_write_minimiser_timer{};
         seqan::hibf::serial_timer local_write_header_timer{};
 
-        for (auto && [file_names, bin_number] : zipped_view)
-        {
+        //{
             std::filesystem::path const file_name{file_names[0]};
             std::filesystem::path output_path = get_output_path(arguments.out_dir, file_name);
 
@@ -76,9 +74,7 @@ void compute_minimiser(prepare_arguments const & arguments)
             bool const already_done = std::filesystem::exists(minimiser_file) && std::filesystem::exists(header_file)
                                    && !std::filesystem::exists(progress_file);
 
-            if (already_done)
-                continue;
-            else
+            if (!already_done)
                 std::ofstream outfile{progress_file, std::ios::binary};
 
             // The hash table stores how often a minimiser appears. It does not matter whether a minimiser appears
@@ -123,7 +119,7 @@ void compute_minimiser(prepare_arguments const & arguments)
             local_write_header_timer.stop();
 
             std::filesystem::remove(progress_file);
-        }
+        //}
 
         arguments.compute_minimiser_timer += local_compute_minimiser_timer;
         arguments.write_minimiser_timer += local_write_minimiser_timer;
@@ -131,15 +127,13 @@ void compute_minimiser(prepare_arguments const & arguments)
     };
 
     size_t const number_of_bins = arguments.bin_path.size();
-    size_t const chunk_size = seqan::hibf::divide_and_ceil(number_of_bins, arguments.threads);
-    auto chunked_view = seqan::stl::views::zip(arguments.bin_path, std::views::iota(0u, number_of_bins))
-                      | seqan::stl::views::chunk(chunk_size);
-    size_t const number_of_chunks = std::ranges::size(chunked_view);
+
+    auto zipped_view = seqan::stl::views::zip(arguments.bin_path, std::views::iota(0u, number_of_bins));
 
 #pragma omp parallel for schedule(dynamic) num_threads(arguments.threads)
-    for (size_t i = 0; i < number_of_chunks; ++i)
+    for (size_t i = 0; i < number_of_bins; ++i)
     {
-        std::invoke(worker, chunked_view[i]);
+        std::invoke(worker, arguments.bin_path[i]);
     }
 
     write_list_file(arguments);
