@@ -30,7 +30,12 @@ void call_parallel_on_bins(algorithm_t && worker,
 
     auto zipped_view = seqan::stl::views::zip(bin_paths, std::views::iota(0u, number_of_bins));
 
-#pragma omp parallel for schedule(guided) num_threads(threads)
+    size_t const chunk_size = std::clamp<size_t>(
+        std::bit_ceil(seqan::hibf::divide_and_ceil(number_of_bins, threads)),
+        8u,
+        64u);
+
+#pragma omp parallel for schedule(guided, chunk_size) num_threads(threads)
     for (size_t i = 0; i < number_of_bins; ++i)
     {
         std::invoke(worker, zipped_view[i]);
