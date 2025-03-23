@@ -82,4 +82,10 @@ struct search_arguments
     }
 };
 
+struct search_fpga_arguments : search_arguments
+{
+    uint8_t buffer{1u};
+    uint8_t kernels{1u};
+};
+
 } // namespace raptor
