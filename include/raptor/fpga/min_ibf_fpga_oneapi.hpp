@@ -44,6 +44,21 @@ private:
     size_t const minimalNumberOfMinimizers{};
     size_t const maximalNumberOfMinimizers{};
     sycl::queue utilitiesQueue;
+
+    std::function<void(void *)> utilitiesQueueDeleter = [this](void * ptr)
+    {
+        sycl::free(ptr, utilitiesQueue);
+    };
+
+    template <typename T>
+    using unique_sycl_ptr = std::unique_ptr<T, decltype(utilitiesQueueDeleter)>;
+
+    template <typename T>
+    unique_sycl_ptr<T> make_unique_sycl_ptr(T * ptr)
+    {
+        return unique_sycl_ptr<T>{ptr, utilitiesQueueDeleter};
+    }
+
     sycl::queue kernelQueue;
     std::vector<size_t> thresholds_size_t;
     size_t const bufferSizeBytes;
@@ -56,9 +71,9 @@ private:
         size_t numberOfQueries;
         std::vector<std::string> ids;
 
-        char * queries_host;            // size: currentBufferSize
-        HostSizeType * querySizes_host; // size: numberOfQueries
-        Chunk * results_host;
+        unique_sycl_ptr<char> queries_host;            // size: currentBufferSize
+        unique_sycl_ptr<HostSizeType> querySizes_host; // size: numberOfQueries
+        unique_sycl_ptr<Chunk> results_host;
 
         std::vector<sycl::event> kernelEvents;
     };
@@ -189,8 +204,8 @@ public:
         size_t const number_of_chunks = INTEGER_DIVISION_CEIL(data_size_bytes, sizeof(Chunk));
         Chunk const * ibfData_host = reinterpret_cast<Chunk *>(data.data());
 
-        auto ibfData_device = sycl::malloc_device<Chunk>(number_of_chunks, utilitiesQueue);
-        setupEvents[1] = utilitiesQueue.memcpy(ibfData_device, ibfData_host, number_of_chunks * sizeof(Chunk));
+        auto ibfData_device = make_unique_sycl_ptr(sycl::malloc_device<Chunk>(number_of_chunks, utilitiesQueue));
+        setupEvents[1] = utilitiesQueue.memcpy(ibfData_device.get(), ibfData_host, number_of_chunks * sizeof(Chunk));
 
         if constexpr (profile)
         {
@@ -234,9 +249,9 @@ public:
 
         static_assert(sizeof(HostSizeType) == sizeof(size_t));
 
-        auto thresholds_device = sycl::malloc_device<HostSizeType>(thresholds_size_t.size(), utilitiesQueue);
+        auto thresholds_device = make_unique_sycl_ptr(sycl::malloc_device<HostSizeType>(thresholds_size_t.size(), utilitiesQueue));
         //setupEvents[0] = utilitiesQueue.copy(thresholds_device, thresholds_size_t.data(), thresholds_size_t.size()); // typed API does not seem to work
-        setupEvents[0] = utilitiesQueue.memcpy(thresholds_device,
+        setupEvents[0] = utilitiesQueue.memcpy(thresholds_device.get(),
                                                thresholds_size_t.data(),
                                                thresholds_size_t.size() * sizeof(HostSizeType));
 
@@ -246,9 +261,9 @@ public:
         for (buffer_data & state : double_buffer)
         {
             // TODO bufferSizeBytes is a way too high upper bound
-            state.queries_host = sycl::malloc_host<char>(bufferSizeBytes, utilitiesQueue);
-            state.querySizes_host = sycl::malloc_host<HostSizeType>(bufferSizeBytes, utilitiesQueue);
-            state.results_host = sycl::malloc_host<Chunk>(bufferSizeBytes, utilitiesQueue);
+            state.queries_host = make_unique_sycl_ptr(sycl::malloc_host<char>(bufferSizeBytes, utilitiesQueue));
+            state.querySizes_host = make_unique_sycl_ptr(sycl::malloc_host<HostSizeType>(bufferSizeBytes, utilitiesQueue));
+            state.results_host = make_unique_sycl_ptr(sycl::malloc_host<Chunk>(bufferSizeBytes, utilitiesQueue));
 
             state.kernelEvents.reserve(numberOfKernelCopys * 2 + 2); // +2: Distributor, Collector
             state.numberOfQueries = 0;
@@ -272,16 +287,16 @@ public:
                 start = std::chrono::steady_clock::now();
 
             RunKernel(kernelQueue,
-                      state->queries_host,
-                      state->querySizes_host,
+                      state->queries_host.get(),
+                      state->querySizes_host.get(),
                       state->numberOfQueries,
-                      ibfData_device,
+                      ibfData_device.get(),
                       bin_size,
                       hash_shift,
                       minimalNumberOfMinimizers,
                       maximalNumberOfMinimizers,
-                      thresholds_device,
-                      state->results_host,
+                      thresholds_device.get(),
+                      state->results_host.get(),
                       state->kernelEvents);
 
             if constexpr (profile)
@@ -325,7 +340,7 @@ public:
 
                 for (size_t chunkOffset = 0; chunkOffset < chunks_per_query; ++chunkOffset)
                 {
-                    Chunk & chunk = state->results_host[queryIndex * chunks_per_query + chunkOffset];
+                    Chunk & chunk = state->results_host.get()[queryIndex * chunks_per_query + chunkOffset];
 
                     for (size_t elementOffset = 0; elementOffset < elements_per_chunk; ++elementOffset)
                     {
@@ -430,10 +445,10 @@ public:
 
             currentBufferData->ids.emplace_back(std::move(id));
 
-            currentBufferData->querySizes_host[currentBufferData->numberOfQueries] = query.size();
+            currentBufferData->querySizes_host.get()[currentBufferData->numberOfQueries] = query.size();
 
             // Copy query to queries
-            std::memcpy(currentBufferData->queries_host + currentBufferSize, query.data(), query.size());
+            std::memcpy(currentBufferData->queries_host.get() + currentBufferSize, query.data(), query.size());
 
             currentBufferSize += query.size();
             currentBufferData->numberOfQueries++;
@@ -462,15 +477,15 @@ public:
             outputResults(currentBufferData);
         }
 
-        sycl::free(ibfData_device, utilitiesQueue);
-        sycl::free(thresholds_device, utilitiesQueue);
+        // sycl::free(ibfData_device, utilitiesQueue);
+        // sycl::free(thresholds_device, utilitiesQueue);
 
-        for (buffer_data & state : double_buffer)
-        {
-            sycl::free(state.queries_host, utilitiesQueue);
-            sycl::free(state.querySizes_host, utilitiesQueue);
-            sycl::free(state.results_host, utilitiesQueue);
-        }
+        // for (buffer_data & state : double_buffer)
+        // {
+        //     sycl::free(state.queries_host, utilitiesQueue);
+        //     sycl::free(state.querySizes_host, utilitiesQueue);
+        //     sycl::free(state.results_host, utilitiesQueue);
+        // }
 
         if constexpr (profile)
             printDuration("Count total:\t", countStart);
