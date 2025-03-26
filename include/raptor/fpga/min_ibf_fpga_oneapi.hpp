@@ -40,18 +40,24 @@ private:
     size_t const maximalNumberOfMinimizers{};
     sycl::queue utilitiesQueue;
 
-    std::function<void(void *)> utilitiesQueueDeleter = [this](void * ptr)
+    std::function<void(void *)> utilities_QueueDeleter = [this](void * ptr)
     {
         sycl::free(ptr, utilitiesQueue);
     };
 
     template <typename T>
-    using unique_sycl_ptr = std::unique_ptr<T, decltype(utilitiesQueueDeleter)>;
+    using unique_utilities_ptr = std::unique_ptr<T, decltype(utilities_QueueDeleter)>;
 
     template <typename T>
-    unique_sycl_ptr<T> make_unique_sycl_ptr(T * ptr)
+    unique_utilities_ptr<T> malloc_device_utilities(size_t const count)
     {
-        return unique_sycl_ptr<T>{ptr, utilitiesQueueDeleter};
+        return {sycl::malloc_device<T>(count, utilitiesQueue), utilities_QueueDeleter};
+    }
+
+    template <typename T>
+    unique_utilities_ptr<T> malloc_host_utilities(size_t const count)
+    {
+        return {sycl::malloc_host<T>(count, utilitiesQueue), utilities_QueueDeleter};
     }
 
     sycl::queue kernelQueue;
@@ -66,9 +72,9 @@ private:
         size_t numberOfQueries;
         std::vector<std::string> ids;
 
-        unique_sycl_ptr<char> queries_host;            // size: currentBufferSize
-        unique_sycl_ptr<HostSizeType> querySizes_host; // size: numberOfQueries
-        unique_sycl_ptr<Chunk> results_host;
+        unique_utilities_ptr<char> queries_host;            // size: currentBufferSize
+        unique_utilities_ptr<HostSizeType> querySizes_host; // size: numberOfQueries
+        unique_utilities_ptr<Chunk> results_host;
 
         std::vector<sycl::event> kernelEvents;
     };
@@ -193,7 +199,7 @@ public:
         size_t const number_of_chunks = seqan::hibf::divide_and_ceil(data_size_bytes, sizeof(Chunk));
         Chunk const * ibfData_host = reinterpret_cast<Chunk const *>(index.ibf().data());
 
-        auto ibfData_device = make_unique_sycl_ptr(sycl::malloc_device<Chunk>(number_of_chunks, utilitiesQueue));
+        auto ibfData_device = malloc_device_utilities<Chunk>(number_of_chunks);
         setupEvents[1] = utilitiesQueue.memcpy(ibfData_device.get(), ibfData_host, number_of_chunks * sizeof(Chunk));
 
         if constexpr (profile)
@@ -238,8 +244,7 @@ public:
 
         static_assert(sizeof(HostSizeType) == sizeof(size_t));
 
-        auto thresholds_device =
-            make_unique_sycl_ptr(sycl::malloc_device<HostSizeType>(thresholds_size_t.size(), utilitiesQueue));
+        auto thresholds_device = malloc_device_utilities<HostSizeType>(thresholds_size_t.size());
         //setupEvents[0] = utilitiesQueue.copy(thresholds_device, thresholds_size_t.data(), thresholds_size_t.size()); // typed API does not seem to work
         setupEvents[0] = utilitiesQueue.memcpy(thresholds_device.get(),
                                                thresholds_size_t.data(),
@@ -251,10 +256,9 @@ public:
         for (buffer_data & state : double_buffer)
         {
             // TODO bufferSizeBytes is a way too high upper bound
-            state.queries_host = make_unique_sycl_ptr(sycl::malloc_host<char>(bufferSizeBytes, utilitiesQueue));
-            state.querySizes_host =
-                make_unique_sycl_ptr(sycl::malloc_host<HostSizeType>(bufferSizeBytes, utilitiesQueue));
-            state.results_host = make_unique_sycl_ptr(sycl::malloc_host<Chunk>(bufferSizeBytes, utilitiesQueue));
+            state.queries_host = malloc_host_utilities<char>(bufferSizeBytes);
+            state.querySizes_host = malloc_host_utilities<HostSizeType>(bufferSizeBytes);
+            state.results_host = malloc_host_utilities<Chunk>(bufferSizeBytes);
 
             state.kernelEvents.reserve(numberOfKernelCopys * 2 + 2); // +2: Distributor, Collector
             state.numberOfQueries = 0;
