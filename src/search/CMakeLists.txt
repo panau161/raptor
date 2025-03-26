@@ -9,5 +9,5 @@ if (TARGET raptor::search)
 endif ()
 
 add_library ("raptor_search" STATIC raptor_search.cpp search_hibf.cpp search_ibf.cpp search_partitioned_ibf.cpp)
-target_link_libraries ("raptor_search" PUBLIC "raptor::interface")
+target_link_libraries ("raptor_search" PUBLIC "raptor::interface" "raptor_search_fpga_oneapi_lib.fpga_emu")
 add_library (raptor::search ALIAS raptor_search)
