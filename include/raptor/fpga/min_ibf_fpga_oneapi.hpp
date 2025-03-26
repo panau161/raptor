@@ -39,25 +39,18 @@ private:
     size_t bin_size{};
     // The number of bits to shift the hash value before doing multiplicative hashing.
     size_t hash_shift{};
-
     seqan3::contrib::sdsl::bit_vector data{};
 
     size_t const minimalNumberOfMinimizers{};
     size_t const maximalNumberOfMinimizers{};
-
     sycl::queue utilitiesQueue;
     sycl::queue kernelQueue;
-
     std::vector<size_t> thresholds_size_t;
-
     size_t const bufferSizeBytes;
     size_t const numberOfKernelCopys;
-
     using timeUnit = std::chrono::duration<double, std::milli>;
     std::chrono::nanoseconds constructorDuration{};
-
     std::array<sycl::event, 2> setupEvents; // 0: transferThresholds, 1: transferIBF
-
     struct buffer_data
     {
         size_t numberOfQueries;
@@ -69,41 +62,14 @@ private:
 
         std::vector<sycl::event> kernelEvents;
     };
-
     std::array<buffer_data, 2> double_buffer;
 
-public:
-    min_ibf_fpga_oneapi(uint8_t w,
-                        uint8_t k,
-                        size_t b,
-                        cereal::BinaryInputArchive & archive,
-                        size_t minimalNumberOfMinimizers,
-                        size_t maximalNumberOfMinimizers,
-                        std::vector<size_t> & thresholds,
-                        uint8_t const bufferSizeMiB,
-                        uint8_t const numberOfKernelCopys) :
-        window_size{w},
-        kmer_size{k},
-        technical_bins{b},
-        minimalNumberOfMinimizers{minimalNumberOfMinimizers},
-        maximalNumberOfMinimizers{maximalNumberOfMinimizers},
-        thresholds_size_t{thresholds},
-        bufferSizeBytes(bufferSizeMiB * 1'048'576),
-        numberOfKernelCopys{numberOfKernelCopys}
+    void setup_fpga()
     {
-
-#if __INTEL_LLVM_COMPILER < 20230100
-#    ifdef FPGA_EMULATOR
-        sycl::ext::intel::fpga_emulator_selector device_selector;
-#    else
-        sycl::ext::intel::fpga_selector device_selector;
-#    endif
-#else
-#    ifdef FPGA_EMULATOR
+#ifdef FPGA_EMULATOR
         auto device_selector = sycl::ext::intel::fpga_emulator_selector_v;
-#    else
+#else
         auto device_selector = sycl::ext::intel::fpga_selector_v;
-#    endif
 #endif
         if constexpr (profile)
             utilitiesQueue =
@@ -129,7 +95,28 @@ public:
                 sycl::queue(device_selector, fpga_tools::exception_handler, sycl::property::queue::enable_profiling());
         else
             kernelQueue = sycl::queue(device_selector, fpga_tools::exception_handler);
+    }
 
+public:
+    min_ibf_fpga_oneapi(uint8_t w,
+                        uint8_t k,
+                        size_t b,
+                        cereal::BinaryInputArchive & archive,
+                        size_t minimalNumberOfMinimizers,
+                        size_t maximalNumberOfMinimizers,
+                        std::vector<size_t> & thresholds,
+                        uint8_t const bufferSizeMiB,
+                        uint8_t const numberOfKernelCopys) :
+        window_size{w},
+        kmer_size{k},
+        technical_bins{b},
+        minimalNumberOfMinimizers{minimalNumberOfMinimizers},
+        maximalNumberOfMinimizers{maximalNumberOfMinimizers},
+        thresholds_size_t{thresholds},
+        bufferSizeBytes(bufferSizeMiB * 1'048'576),
+        numberOfKernelCopys{numberOfKernelCopys}
+    {
+        setup_fpga();
         std::chrono::steady_clock::time_point start;
 
         if constexpr (profile)
@@ -152,27 +139,8 @@ public:
         }
     }
 
-    void count(std::filesystem::path const & query_path, std::filesystem::path const & output_path)
+    std::filesystem::path find_shared_library() const
     {
-        std::chrono::steady_clock::time_point countStart;
-        std::chrono::steady_clock::time_point hostStart;
-
-        if constexpr (profile)
-            countStart = std::chrono::steady_clock::now();
-
-        size_t const data_size_bytes = (data.bit_size() + 63) / 64 * 64 / 8;
-        size_t const number_of_chunks = INTEGER_DIVISION_CEIL(data_size_bytes, sizeof(Chunk));
-        Chunk const * ibfData_host = reinterpret_cast<Chunk *>(data.data());
-
-        auto ibfData_device = sycl::malloc_device<Chunk>(number_of_chunks, utilitiesQueue);
-        setupEvents[1] = utilitiesQueue.memcpy(ibfData_device, ibfData_host, number_of_chunks * sizeof(Chunk));
-
-        if constexpr (profile)
-        {
-            printDuration("IBF I/O:\t", countStart, constructorDuration);
-            hostStart = std::chrono::steady_clock::now();
-        }
-
 #if FPGA_HARDWARE
         std::string library_suffix = ".fpga.so";
 #else
@@ -206,19 +174,45 @@ public:
             std::terminate();
         }
 
-        typedef void (*RunKernelType)(sycl::queue &,
-                                      char const *,
-                                      HostSizeType const *,
-                                      HostSizeType const,
-                                      Chunk const *,
-                                      HostSizeType const,
-                                      HostSizeType const,
-                                      HostSizeType const,
-                                      HostSizeType const,
-                                      HostSizeType const *,
-                                      Chunk *,
-                                      std::vector<sycl::event> &);
+        return library_path;
+    }
 
+    void count(std::filesystem::path const & query_path, std::filesystem::path const & output_path)
+    {
+        std::chrono::steady_clock::time_point countStart;
+        std::chrono::steady_clock::time_point hostStart;
+
+        if constexpr (profile)
+            countStart = std::chrono::steady_clock::now();
+
+        size_t const data_size_bytes = (data.bit_size() + 63) / 64 * 64 / 8;
+        size_t const number_of_chunks = INTEGER_DIVISION_CEIL(data_size_bytes, sizeof(Chunk));
+        Chunk const * ibfData_host = reinterpret_cast<Chunk *>(data.data());
+
+        auto ibfData_device = sycl::malloc_device<Chunk>(number_of_chunks, utilitiesQueue);
+        setupEvents[1] = utilitiesQueue.memcpy(ibfData_device, ibfData_host, number_of_chunks * sizeof(Chunk));
+
+        if constexpr (profile)
+        {
+            printDuration("IBF I/O:\t", countStart, constructorDuration);
+            hostStart = std::chrono::steady_clock::now();
+        }
+
+        // RunKernelType is a function pointer to a function that takes multiple arguments and returns void.
+        using RunKernelType = void (*)(sycl::queue &,
+                                       char const *,
+                                       HostSizeType const *,
+                                       HostSizeType const,
+                                       Chunk const *,
+                                       HostSizeType const,
+                                       HostSizeType const,
+                                       HostSizeType const,
+                                       HostSizeType const,
+                                       HostSizeType const *,
+                                       Chunk *,
+                                       std::vector<sycl::event> &);
+
+        std::filesystem::path library_path = find_shared_library();
         void * handle = dlopen(library_path.c_str(), RTLD_NOW);
 
         if (!handle)
@@ -251,7 +245,7 @@ public:
 
         for (buffer_data & state : double_buffer)
         {
-            // TODO bufferSizeBytes is an way to high upper bound
+            // TODO bufferSizeBytes is a way too high upper bound
             state.queries_host = sycl::malloc_host<char>(bufferSizeBytes, utilitiesQueue);
             state.querySizes_host = sycl::malloc_host<HostSizeType>(bufferSizeBytes, utilitiesQueue);
             state.results_host = sycl::malloc_host<Chunk>(bufferSizeBytes, utilitiesQueue);

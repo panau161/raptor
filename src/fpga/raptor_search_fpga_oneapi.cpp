@@ -57,15 +57,15 @@ void raptor_search_fpga_oneapi(raptor::search_fpga_arguments const & arguments)
     case 64:
         process.template operator()<64>();
         break;
-    case 128:
-        process.template operator()<128>();
-        break;
-    case 256:
-        process.template operator()<256>();
-        break;
-    case 512:
-        process.template operator()<512>();
-        break;
+    // case 128:
+    //     process.template operator()<128>();
+    //     break;
+    // case 256:
+    //     process.template operator()<256>();
+    //     break;
+    // case 512:
+    //     process.template operator()<512>();
+    //     break;
     default:
         seqan::hibf::unreachable();
         // Todo: Should be checked when parsing arguments.
