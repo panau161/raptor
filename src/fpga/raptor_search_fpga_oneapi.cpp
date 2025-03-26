@@ -20,15 +20,8 @@ void raptor_search_fpga_oneapi(raptor::search_fpga_arguments const & arguments)
 
     std::vector<size_t> precomp_thresholds = precompute_threshold(arguments.make_threshold_parameters());
 
-    std::ifstream archiveStream{arguments.index_file, std::ios::binary};
-    cereal::BinaryInputArchive archive{archiveStream};
-
-    size_t bins{};
-    size_t technical_bins{};
-
-    archive(bins);
-    archive(technical_bins);
-
+    size_t bins{arguments.bin_path.size()};
+    size_t technical_bins{seqan::hibf::next_multiple_of_64(bins)};
     assert(bins == technical_bins); // Todo: Important?
 
     constexpr bool profile = true;
@@ -39,10 +32,7 @@ void raptor_search_fpga_oneapi(raptor::search_fpga_arguments const & arguments)
 
     auto process = [&]<size_t chunk_bits>()
     {
-        min_ibf_fpga_oneapi<chunk_bits, profile> ibf(arguments.window_size,
-                                                     arguments.shape_size,
-                                                     technical_bins,
-                                                     archive,
+        min_ibf_fpga_oneapi<chunk_bits, profile> ibf(arguments.index_file,
                                                      minimal_number_of_minimizers,
                                                      maximal_number_of_minimizers,
                                                      precomp_thresholds,

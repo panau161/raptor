@@ -19,7 +19,9 @@ using namespace std::string_literals;
 
 #include <cereal/archives/binary.hpp>
 // #include <sdsl/bit_vectors.hpp>
-#include <seqan3/contrib/sdsl-lite.hpp>
+// #include <seqan3/contrib/sdsl-lite.hpp>
+
+#include <raptor/index.hpp>
 
 #include "min_ibf_fpga/backend_sycl/exception_handler.hpp"
 #include <sycl/ext/intel/fpga_extensions.hpp>
@@ -31,15 +33,8 @@ class min_ibf_fpga_oneapi
     using Chunk = ac_int<chunk_bits, false>;
 
 private:
-    size_t const window_size{};
-    size_t const kmer_size{};
-    // The number of bins stored in the IBF (next multiple of 64 of `bins`).
-    size_t technical_bins{};
-    // The size of each bin in bits.
-    size_t bin_size{};
-    // The number of bits to shift the hash value before doing multiplicative hashing.
-    size_t hash_shift{};
-    seqan3::contrib::sdsl::bit_vector data{};
+    raptor::raptor_index<raptor::index_structure::ibf> index;
+    size_t technical_bins{}; // TODO: accessor?
 
     size_t const minimalNumberOfMinimizers{};
     size_t const maximalNumberOfMinimizers{};
@@ -113,39 +108,32 @@ private:
     }
 
 public:
-    min_ibf_fpga_oneapi(uint8_t w,
-                        uint8_t k,
-                        size_t b,
-                        cereal::BinaryInputArchive & archive,
+    min_ibf_fpga_oneapi(std::filesystem::path const & index_path,
                         size_t minimalNumberOfMinimizers,
                         size_t maximalNumberOfMinimizers,
                         std::vector<size_t> & thresholds,
                         uint8_t const bufferSizeMiB,
                         uint8_t const numberOfKernelCopys) :
-        window_size{w},
-        kmer_size{k},
-        technical_bins{b},
         minimalNumberOfMinimizers{minimalNumberOfMinimizers},
         maximalNumberOfMinimizers{maximalNumberOfMinimizers},
         thresholds_size_t{thresholds},
         bufferSizeBytes(bufferSizeMiB * 1'048'576),
         numberOfKernelCopys{numberOfKernelCopys}
     {
+
         setup_fpga();
         std::chrono::steady_clock::time_point start;
 
         if constexpr (profile)
             start = std::chrono::steady_clock::now();
 
-        size_t bin_words{};
-        size_t hash_funs{};
+        {
+            std::ifstream archiveStream{index_path, std::ios::binary};
+            cereal::BinaryInputArchive archive{archiveStream};
+            archive(index);
+        }
 
-        archive(bin_size);
-        archive(hash_shift);
-        archive(bin_words);
-        archive(hash_funs);
-
-        archive(data);
+        technical_bins = seqan::hibf::next_multiple_of_64(index.ibf().bin_count());
 
         if constexpr (profile)
         {
@@ -163,8 +151,8 @@ public:
 #endif
 
         std::ostringstream oss;
-        oss << "libraptor_search_fpga_oneapi_lib_kernel_w" << window_size << "_k" << kmer_size << "_b" << technical_bins
-            << "_kernels" << numberOfKernelCopys << library_suffix;
+        oss << "libraptor_search_fpga_oneapi_lib_kernel_w" << index.window_size() << "_k" << index.shape().size()
+            << "_b" << technical_bins << "_kernels" << numberOfKernelCopys << library_suffix;
         std::string name = oss.str();
 
         std::filesystem::path library_path{"../src/fpga"};
@@ -200,9 +188,10 @@ public:
         if constexpr (profile)
             countStart = std::chrono::steady_clock::now();
 
-        size_t const data_size_bytes = (data.bit_size() + 63) / 64 * 64 / 8;
-        size_t const number_of_chunks = INTEGER_DIVISION_CEIL(data_size_bytes, sizeof(Chunk));
-        Chunk const * ibfData_host = reinterpret_cast<Chunk *>(data.data());
+        // Was (data.bit_size() + 63) / 64 * 64 / 8;
+        size_t const data_size_bytes = seqan::hibf::divide_and_ceil(index.ibf().bit_size(), 64u) * 8;
+        size_t const number_of_chunks = seqan::hibf::divide_and_ceil(data_size_bytes, sizeof(Chunk));
+        Chunk const * ibfData_host = reinterpret_cast<Chunk const *>(index.ibf().data());
 
         auto ibfData_device = make_unique_sycl_ptr(sycl::malloc_device<Chunk>(number_of_chunks, utilitiesQueue));
         setupEvents[1] = utilitiesQueue.memcpy(ibfData_device.get(), ibfData_host, number_of_chunks * sizeof(Chunk));
@@ -293,8 +282,8 @@ public:
                       state.querySizes_host.get(),
                       state.numberOfQueries,
                       ibfData_device.get(),
-                      bin_size,
-                      hash_shift,
+                      index.ibf().bin_size(),
+                      std::countl_zero(index.ibf().bin_size()), // TODO: accessor index.ibf().hash_shift()
                       minimalNumberOfMinimizers,
                       maximalNumberOfMinimizers,
                       thresholds_device.get(),
@@ -329,7 +318,7 @@ public:
             result_string.clear();
 
             size_t const elements_per_query = technical_bins / 64;
-            size_t const chunks_per_query = INTEGER_DIVISION_CEIL(technical_bins, chunk_bits);
+            size_t const chunks_per_query = seqan::hibf::divide_and_ceil(technical_bins, chunk_bits);
             size_t const elements_per_chunk = chunk_bits / 64;
 
             if (elements_per_chunk * chunks_per_query != elements_per_query)
