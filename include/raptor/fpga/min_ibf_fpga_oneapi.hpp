@@ -249,7 +249,8 @@ public:
 
         static_assert(sizeof(HostSizeType) == sizeof(size_t));
 
-        auto thresholds_device = make_unique_sycl_ptr(sycl::malloc_device<HostSizeType>(thresholds_size_t.size(), utilitiesQueue));
+        auto thresholds_device =
+            make_unique_sycl_ptr(sycl::malloc_device<HostSizeType>(thresholds_size_t.size(), utilitiesQueue));
         //setupEvents[0] = utilitiesQueue.copy(thresholds_device, thresholds_size_t.data(), thresholds_size_t.size()); // typed API does not seem to work
         setupEvents[0] = utilitiesQueue.memcpy(thresholds_device.get(),
                                                thresholds_size_t.data(),
@@ -262,14 +263,15 @@ public:
         {
             // TODO bufferSizeBytes is a way too high upper bound
             state.queries_host = make_unique_sycl_ptr(sycl::malloc_host<char>(bufferSizeBytes, utilitiesQueue));
-            state.querySizes_host = make_unique_sycl_ptr(sycl::malloc_host<HostSizeType>(bufferSizeBytes, utilitiesQueue));
+            state.querySizes_host =
+                make_unique_sycl_ptr(sycl::malloc_host<HostSizeType>(bufferSizeBytes, utilitiesQueue));
             state.results_host = make_unique_sycl_ptr(sycl::malloc_host<Chunk>(bufferSizeBytes, utilitiesQueue));
 
             state.kernelEvents.reserve(numberOfKernelCopys * 2 + 2); // +2: Distributor, Collector
             state.numberOfQueries = 0;
         }
 
-        auto const queueToFPGA = [&](struct buffer_data * state, size_t computeIteration)
+        auto const queueToFPGA = [&](buffer_data & state, size_t computeIteration)
         {
             if (computeIteration == 0)
             {
@@ -287,37 +289,37 @@ public:
                 start = std::chrono::steady_clock::now();
 
             RunKernel(kernelQueue,
-                      state->queries_host.get(),
-                      state->querySizes_host.get(),
-                      state->numberOfQueries,
+                      state.queries_host.get(),
+                      state.querySizes_host.get(),
+                      state.numberOfQueries,
                       ibfData_device.get(),
                       bin_size,
                       hash_shift,
                       minimalNumberOfMinimizers,
                       maximalNumberOfMinimizers,
                       thresholds_device.get(),
-                      state->results_host.get(),
-                      state->kernelEvents);
+                      state.results_host.get(),
+                      state.kernelEvents);
 
             if constexpr (profile)
                 printDuration("Queue:\t\t", start);
         };
 
-        auto const waitOnFPGA = [&](buffer_data * state)
+        auto const waitOnFPGA = [&](buffer_data & state)
         {
             std::chrono::steady_clock::time_point start;
 
             if constexpr (profile)
                 start = std::chrono::steady_clock::now();
 
-            for (sycl::event e : state->kernelEvents)
+            for (sycl::event e : state.kernelEvents)
                 e.wait();
 
             if constexpr (profile)
                 printDuration("Wait:\t\t", start);
         };
 
-        auto const outputResults = [&](buffer_data * state)
+        auto const outputResults = [&](buffer_data & state)
         {
             std::chrono::steady_clock::time_point start;
 
@@ -333,14 +335,14 @@ public:
             if (elements_per_chunk * chunks_per_query != elements_per_query)
                 throw std::runtime_error("outputResults: elements_per_query/chunks_per_query mismatch");
 
-            for (size_t queryIndex = 0; queryIndex < state->ids.size(); queryIndex++)
+            for (size_t queryIndex = 0; queryIndex < state.ids.size(); queryIndex++)
             {
                 // TODO: Use string view?
-                result_string += state->ids.at(queryIndex).substr(1, std::string::npos) + '\t';
+                result_string += state.ids.at(queryIndex).substr(1, std::string::npos) + '\t';
 
                 for (size_t chunkOffset = 0; chunkOffset < chunks_per_query; ++chunkOffset)
                 {
-                    Chunk & chunk = state->results_host.get()[queryIndex * chunks_per_query + chunkOffset];
+                    Chunk & chunk = state.results_host.get()[queryIndex * chunks_per_query + chunkOffset];
 
                     for (size_t elementOffset = 0; elementOffset < elements_per_chunk; ++elementOffset)
                     {
@@ -387,10 +389,10 @@ public:
             {
                 std::stringstream profilingOutput;
 
-                profilingOutput << "\n" << "Kernels:\t" << getRuntime(state->kernelEvents) << " ms\n";
+                profilingOutput << "\n" << "Kernels:\t" << getRuntime(state.kernelEvents) << " ms\n";
 
-                for (size_t kernelId = 0; kernelId < state->kernelEvents.size(); ++kernelId)
-                    profilingOutput << "Kernel " << kernelId << ":\t" << getRuntime(state->kernelEvents[kernelId])
+                for (size_t kernelId = 0; kernelId < state.kernelEvents.size(); ++kernelId)
+                    profilingOutput << "Kernel " << kernelId << ":\t" << getRuntime(state.kernelEvents[kernelId])
                                     << " ms\n";
 
                 profilingOutput << "\n";
@@ -398,7 +400,7 @@ public:
                 std::clog << profilingOutput.str();
             }
 
-            state->kernelEvents.clear();
+            state.kernelEvents.clear();
         };
 
         std::ifstream inputStream(query_path, std::ios::in | std::ios::binary);
@@ -409,7 +411,7 @@ public:
         size_t computeIteration = 0;
         size_t currentBufferSize = 0;
 
-        buffer_data * currentBufferData = &double_buffer[0];
+        buffer_data * currentBufferData = double_buffer.data();
 
         while (std::getline(inputStream, id))
         //for (auto && [id, query] : fin)
@@ -424,14 +426,14 @@ public:
                 if constexpr (profile)
                     printDuration("Host:\t\t", hostStart);
 
-                queueToFPGA(currentBufferData, computeIteration);
-
-                currentBufferData = &double_buffer[++computeIteration % 2];
+                queueToFPGA(*currentBufferData, computeIteration);
+                ++computeIteration;
+                currentBufferData = std::addressof(double_buffer[computeIteration % 2]);
 
                 if (computeIteration >= 2)
                 {
-                    waitOnFPGA(currentBufferData);
-                    outputResults(currentBufferData); // could run async up to the next kernel start
+                    waitOnFPGA(*currentBufferData);
+                    outputResults(*currentBufferData); // could run async up to the next kernel start
                 }
 
                 if constexpr (profile)
@@ -464,28 +466,17 @@ public:
             if constexpr (profile)
                 printDuration("Host:\t\t", hostStart);
 
-            queueToFPGA(currentBufferData, computeIteration);
-
-            computeIteration++;
+            queueToFPGA(*currentBufferData, computeIteration);
+            ++computeIteration;
         }
 
         // Wait for the remaining ones to finish
-        for (int i = std::min(computeIteration, 2ul); i > 0; i--)
+        for (size_t i = std::min<size_t>(computeIteration, 2ul); i > 0; --i)
         {
-            currentBufferData = &double_buffer[(computeIteration + i) % 2];
-            waitOnFPGA(currentBufferData);
-            outputResults(currentBufferData);
+            currentBufferData = std::addressof(double_buffer[(computeIteration + i) % 2]);
+            waitOnFPGA(*currentBufferData);
+            outputResults(*currentBufferData);
         }
-
-        // sycl::free(ibfData_device, utilitiesQueue);
-        // sycl::free(thresholds_device, utilitiesQueue);
-
-        // for (buffer_data & state : double_buffer)
-        // {
-        //     sycl::free(state.queries_host, utilitiesQueue);
-        //     sycl::free(state.querySizes_host, utilitiesQueue);
-        //     sycl::free(state.results_host, utilitiesQueue);
-        // }
 
         if constexpr (profile)
             printDuration("Count total:\t", countStart);
