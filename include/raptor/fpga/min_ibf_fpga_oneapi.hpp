@@ -158,7 +158,7 @@ public:
         }
     }
 
-    std::filesystem::path find_shared_library() const
+    std::string get_library_name() const
     {
         constexpr std::string_view library_suffix = []()
         {
@@ -168,21 +168,12 @@ public:
                 return ".fpga.so";
         }();
 
-        std::filesystem::path library_path = std::filesystem::path{RAPTOR_FPGA_SHARED_LIBRARY_BASE_PATH};
-        library_path /= std::format("libraptor_search_fpga_oneapi_lib_kernel_w{}_k{}_b{}_kernels{}{}",
-                                    index.window_size(),
-                                    index.shape().size(),
-                                    technical_bins,
-                                    numberOfKernelCopys,
-                                    library_suffix);
-
-        if (!std::filesystem::exists(library_path))
-        {
-            std::cerr << "ERROR: Expected shared object " << library_path << " not present." << std::endl;
-            std::terminate();
-        }
-
-        return library_path;
+        return std::format("libraptor_search_fpga_oneapi_lib_kernel_w{}_k{}_b{}_kernels{}{}",
+                           index.window_size(),
+                           index.shape().size(),
+                           technical_bins,
+                           numberOfKernelCopys,
+                           library_suffix);
     }
 
     void count(std::filesystem::path const & query_path, std::filesystem::path const & output_path)
@@ -221,8 +212,8 @@ public:
                                        Chunk *,
                                        std::vector<sycl::event> &);
 
-        std::filesystem::path library_path = find_shared_library();
-        void * handle = dlopen(library_path.c_str(), RTLD_NOW);
+        std::string const library_name = get_library_name();
+        void * handle = dlopen(library_name.c_str(), RTLD_NOW);
 
         if (!handle)
         {
