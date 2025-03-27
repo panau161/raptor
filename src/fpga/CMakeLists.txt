@@ -64,17 +64,17 @@ set(EMULATOR_TARGET ${TARGET_NAME}.fpga_emu)
 set(FPGA_TARGET ${TARGET_NAME}.fpga)
 
 if(NOT DEFINED WINDOW_SIZE_LIST)
-    message("No WINDOW_SIZE_LIST supplied. Defaulting to '23'.")
+    message(STATUS "No WINDOW_SIZE_LIST supplied. Defaulting to '23'.")
     set(WINDOW_SIZE_LIST "23")
 endif()
 
 if(NOT DEFINED MIN_IBF_K_LIST)
-    message("No MIN_IBF_K_LIST supplied. Defaulting to '19'.")
+    message(STATUS "No MIN_IBF_K_LIST supplied. Defaulting to '19'.")
     set(MIN_IBF_K_LIST "19")
 endif()
 
 if(NOT DEFINED BIN_COUNT_LIST)
-    message("No BIN_COUNT_LIST supplied. Defaulting to '64;8192'.")
+    message(STATUS "No BIN_COUNT_LIST supplied. Defaulting to '64;8192'.")
     set(BIN_COUNT_LIST 64 8192)
 endif()
 
@@ -86,7 +86,7 @@ endif()
 # message(STATUS "BIN_COUNT_STRING: ${BIN_COUNT_STRING}")
 
 if(NOT DEFINED KERNEL_COPYS_LIST)
-    message("No KERNEL_COPYS_LIST supplied. Defaulting to '1;2'.")
+    message(STATUS "No KERNEL_COPYS_LIST supplied. Defaulting to '1;2'.")
     set(KERNEL_COPYS_LIST "1;2")
 endif()
 
