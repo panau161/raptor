@@ -1,36 +1,41 @@
+// SPDX-FileCopyrightText: 2006-2025 Knut Reinert & Freie Universität Berlin
+// SPDX-FileCopyrightText: 2016-2025 Knut Reinert & MPI für molekulare Genetik
+// SPDX-FileCopyrightText: 2020-2025 Thomas Steinke & Zuse Institute Berlin
+// SPDX-License-Identifier: BSD-3-Clause
+
 #pragma once
 
 #if defined(FPGA_EMULATOR) == defined(FPGA_HARDWARE)
 #    error "Either FPGA_EMULATOR or FPGA_HARDWARE have to be defined."
 #endif
 
-#include <dlfcn.h>
+#include <dlfcn.h> // dlopen, dlsym
+#include <filesystem>
+#include <format>
 #include <string>
 
-using namespace std::string_literals;
-
-#if __INTEL_LLVM_COMPILER < 20230000
-#    include <CL/sycl.hpp>
-#else
-#    include <sycl/sycl.hpp>
-#endif
-
-#include <filesystem>
-
 #include <cereal/archives/binary.hpp>
-// #include <sdsl/bit_vectors.hpp>
-// #include <seqan3/contrib/sdsl-lite.hpp>
 
 #include <raptor/index.hpp>
 
-#include "min_ibf_fpga/backend_sycl/exception_handler.hpp"
+#include <min_ibf_fpga/backend_sycl/exception_handler.hpp>
+#include <min_ibf_fpga/backend_sycl/shared.hpp>
+
 #include <sycl/ext/intel/fpga_extensions.hpp>
+#include <sycl/sycl.hpp>
 
 template <size_t chunk_bits, bool profile = false>
 class min_ibf_fpga_oneapi
 {
     using HostSizeType = min_ibf_fpga::backend_sycl::HostSizeType;
     using Chunk = ac_int<chunk_bits, false>;
+
+    static constexpr bool is_emulator =
+#ifdef FPGA_EMULATOR
+        true;
+#else
+        false;
+#endif
 
 private:
     raptor::raptor_index<raptor::index_structure::ibf> index;
@@ -82,16 +87,25 @@ private:
 
     void setup_fpga()
     {
-#ifdef FPGA_EMULATOR
-        auto device_selector = sycl::ext::intel::fpga_emulator_selector_v;
-#else
-        auto device_selector = sycl::ext::intel::fpga_selector_v;
-#endif
-        if constexpr (profile)
-            utilitiesQueue =
-                sycl::queue(device_selector, fpga_tools::exception_handler, sycl::property::queue::enable_profiling());
-        else
-            utilitiesQueue = sycl::queue(device_selector, fpga_tools::exception_handler);
+        auto device_selector = []()
+        {
+            if constexpr (is_emulator)
+                return sycl::ext::intel::fpga_emulator_selector_v;
+            else
+                return sycl::ext::intel::fpga_selector_v;
+        }();
+
+        auto create_queue = [&device_selector]()
+        {
+            if constexpr (profile)
+                return sycl::queue(device_selector,
+                                   fpga_tools::exception_handler,
+                                   sycl::property::queue::enable_profiling());
+            else
+                return sycl::queue(device_selector, fpga_tools::exception_handler);
+        };
+
+        utilitiesQueue = create_queue();
 
         sycl::device dev = utilitiesQueue.get_device();
 
@@ -106,11 +120,7 @@ private:
             std::terminate();
         }
 
-        if constexpr (profile)
-            kernelQueue =
-                sycl::queue(device_selector, fpga_tools::exception_handler, sycl::property::queue::enable_profiling());
-        else
-            kernelQueue = sycl::queue(device_selector, fpga_tools::exception_handler);
+        kernelQueue = create_queue();
     }
 
 public:
@@ -150,32 +160,21 @@ public:
 
     std::filesystem::path find_shared_library() const
     {
-#if FPGA_HARDWARE
-        std::string library_suffix = ".fpga.so";
-#else
-        std::string library_suffix = ".fpga_emu.so";
-#endif
-
-        std::ostringstream oss;
-        oss << "libraptor_search_fpga_oneapi_lib_kernel_w" << index.window_size() << "_k" << index.shape().size()
-            << "_b" << technical_bins << "_kernels" << numberOfKernelCopys << library_suffix;
-        std::string name = oss.str();
-
-        std::filesystem::path library_path{"../src/fpga"};
-        std::filesystem::path test_path{"../../../../../src/fpga"};
-
-        if (std::filesystem::exists(library_path))
+        constexpr std::string_view library_suffix = []()
         {
-            library_path = library_path / name;
-        }
-        else if (std::filesystem::exists(test_path))
-        {
-            library_path = test_path / name;
-        }
-        else
-        {
-            library_path = std::filesystem::current_path() / name;
-        }
+            if constexpr (is_emulator)
+                return ".fpga_emu.so";
+            else
+                return ".fpga.so";
+        }();
+
+        std::filesystem::path library_path = std::filesystem::path{RAPTOR_FPGA_SHARED_LIBRARY_BASE_PATH};
+        library_path /= std::format("libraptor_search_fpga_oneapi_lib_kernel_w{}_k{}_b{}_kernels{}{}",
+                                    index.window_size(),
+                                    index.shape().size(),
+                                    technical_bins,
+                                    numberOfKernelCopys,
+                                    library_suffix);
 
         if (!std::filesystem::exists(library_path))
         {

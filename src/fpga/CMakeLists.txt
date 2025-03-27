@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2006-2025 Knut Reinert & Freie Universität Berlin
 # SPDX-FileCopyrightText: 2016-2025 Knut Reinert & MPI für molekulare Genetik
+# SPDX-FileCopyrightText: 2020-2025 Thomas Steinke & Zuse Institute Berlin
 # SPDX-License-Identifier: BSD-3-Clause
 
 cmake_minimum_required (VERSION 3.25...3.30)
@@ -49,6 +50,7 @@ endif()
 add_library(raptor_search_fpga_oneapi_base INTERFACE)
 target_link_libraries(raptor_search_fpga_oneapi_base INTERFACE "raptor::interface")
 target_include_directories(raptor_search_fpga_oneapi_base INTERFACE "${RAPTOR_MIN_IBF_FPGA_ROOT}/include")
+target_compile_definitions(raptor_search_fpga_oneapi_base INTERFACE RAPTOR_FPGA_SHARED_LIBRARY_BASE_PATH=\"${CMAKE_BINARY_DIR}\")
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})

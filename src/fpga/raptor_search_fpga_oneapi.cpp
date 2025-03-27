@@ -1,10 +1,12 @@
+// SPDX-FileCopyrightText: 2006-2025 Knut Reinert & Freie Universität Berlin
+// SPDX-FileCopyrightText: 2016-2025 Knut Reinert & MPI für molekulare Genetik
+// SPDX-FileCopyrightText: 2020-2025 Thomas Steinke & Zuse Institute Berlin
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include <cmath>
 #include <fstream>
 #include <vector>
 
-#include "min_ibf_fpga/backend_sycl/shared.hpp"
-
-// #include "compute_simple_model_fpga.hpp"
 #include <hibf/misc/unreachable.hpp>
 
 #include <raptor/argument_parsing/search_arguments.hpp>
