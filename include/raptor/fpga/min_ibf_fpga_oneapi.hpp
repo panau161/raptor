@@ -127,12 +127,12 @@ public:
     min_ibf_fpga_oneapi(std::filesystem::path const & index_path,
                         size_t minimalNumberOfMinimizers,
                         size_t maximalNumberOfMinimizers,
-                        std::vector<size_t> & thresholds,
+                        std::vector<size_t> thresholds,
                         uint8_t const bufferSizeMiB,
                         uint8_t const numberOfKernelCopys) :
         minimalNumberOfMinimizers{minimalNumberOfMinimizers},
         maximalNumberOfMinimizers{maximalNumberOfMinimizers},
-        thresholds_size_t{thresholds},
+        thresholds_size_t{std::move(thresholds)},
         bufferSizeBytes(bufferSizeMiB * 1'048'576),
         numberOfKernelCopys{numberOfKernelCopys}
     {
