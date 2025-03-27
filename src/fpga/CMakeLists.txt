@@ -44,13 +44,14 @@ else()
     message(STATUS "Configuring the design to run on FPGA board ${FPGA_DEVICE}")
 endif()
 
-# add_subdirectory(${RAPTOR_MIN_IBF_FPGA_ROOT} EXCLUDE_FROM_ALL min-ibf-fpga-oneapi)
-
 # Shared Includes between all targets
-add_library(raptor_search_fpga_oneapi_base INTERFACE)
-target_link_libraries(raptor_search_fpga_oneapi_base INTERFACE "raptor::interface")
-target_include_directories(raptor_search_fpga_oneapi_base INTERFACE "${RAPTOR_MIN_IBF_FPGA_ROOT}/include")
-target_compile_definitions(raptor_search_fpga_oneapi_base INTERFACE RAPTOR_FPGA_SHARED_LIBRARY_BASE_PATH=\"${CMAKE_BINARY_DIR}\")
+add_library(raptor_fpga_interface INTERFACE)
+target_link_libraries(raptor_fpga_interface INTERFACE "raptor::interface")
+target_include_directories(raptor_fpga_interface SYSTEM INTERFACE "${RAPTOR_MIN_IBF_FPGA_ROOT}/include")
+target_compile_definitions(raptor_fpga_interface INTERFACE RAPTOR_FPGA_SHARED_LIBRARY_BASE_PATH=\"${CMAKE_BINARY_DIR}\")
+target_compile_options(raptor_fpga_interface INTERFACE "-fsycl" "-fintelfpga" "-Xshyper-optimized-handshaking=off" "-qactypes")
+target_link_options(raptor_fpga_interface INTERFACE "-fsycl" "-fintelfpga" "-Xshyper-optimized-handshaking=off" "-qactypes")
+add_library (raptor::fpga::interface ALIAS raptor_fpga_interface)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
@@ -74,25 +75,51 @@ endif()
 
 if(NOT DEFINED BIN_COUNT_LIST)
     message("No BIN_COUNT_LIST supplied. Defaulting to '64;8192'.")
-    set(BIN_COUNT_LIST "64;8192")
+    set(BIN_COUNT_LIST 64 8192)
 endif()
+
+# set(BIN_COUNT_LIST 64)
+# list(JOIN BIN_COUNT_LIST "," BIN_COUNT_STRING)
+# message(STATUS "BIN_COUNT_STRING: ${BIN_COUNT_STRING}")
+# set(BIN_COUNT_LIST 64 8192)
+# list(JOIN BIN_COUNT_LIST "," BIN_COUNT_STRING)
+# message(STATUS "BIN_COUNT_STRING: ${BIN_COUNT_STRING}")
 
 if(NOT DEFINED KERNEL_COPYS_LIST)
     message("No KERNEL_COPYS_LIST supplied. Defaulting to '1;2'.")
     set(KERNEL_COPYS_LIST "1;2")
 endif()
 
-if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 2022)
-    set(BOARD_FLAG "-Xstarget")
-    set(EMULATOR_AC_INT_FLAG "-qactypes")
-else()
-    set(BOARD_FLAG "-Xsboard")
-endif()
-
-set(COMMON_COMPILE_FLAGS -fsycl -fintelfpga -Xshyper-optimized-handshaking=off -Wall)
-set(COMMON_LINK_FLAGS -fsycl -fintelfpga -Xshyper-optimized-handshaking=off)
-set(HARDWARE_LINK_FLAGS -Xshardware ${BOARD_FLAG}=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS})
+set(HARDWARE_LINK_FLAGS -Xshardware -Xstarget=${FPGA_DEVICE} ${USER_HARDWARE_FLAGS})
 # use cmake -D USER_HARDWARE_FLAGS=<flags> to set extra flags for FPGA backend compilation
+
+macro(ITERATE_OVER_COMBINATIONS)
+    foreach(WINDOW_SIZE IN LISTS WINDOW_SIZE_LIST)
+        foreach(MIN_IBF_K IN LISTS MIN_IBF_K_LIST)
+            if(${WINDOW_SIZE} GREATER ${MIN_IBF_K})
+                foreach(BIN_COUNT IN LISTS BIN_COUNT_LIST)
+                    foreach(KERNEL_COPYS IN LISTS KERNEL_COPYS_LIST)
+                        # Evaluate the block of code passed as ARGN
+                        foreach(CODE_LINE IN LISTS ARGN)
+                            CMAKE_LANGUAGE(EVAL CODE ${CODE_LINE})
+                        endforeach()
+                    endforeach()
+                endforeach()
+            else()
+                message(WARNING "Deselecting w${WINDOW_SIZE}_k${MIN_IBF_K} because window size is not bigger than k-mer size.")
+            endif()
+        endforeach()
+    endforeach()
+endmacro()
+
+macro(GENERATE_TARGET RESULT_SUFFIX OUTPUT_VAR)
+    set(${OUTPUT_VAR} "${TARGET_NAME}_kernel_w${WINDOW_SIZE}_k${MIN_IBF_K}_b${BIN_COUNT}_kernels${KERNEL_COPYS}.${RESULT_SUFFIX}")
+endmacro()
+
+macro(ADD_COMMON_TARGET_OPTIONS TARGET_TO)
+    target_compile_options(${TARGET_TO} PRIVATE -DWINDOW_SIZE=${WINDOW_SIZE} -DMIN_IBF_K=${MIN_IBF_K} -DBIN_COUNT=${BIN_COUNT} -DKERNEL_COPYS=${KERNEL_COPYS})
+    target_link_libraries (${TARGET_TO} PRIVATE raptor::fpga::interface)
+endmacro()
 
 ###############################################################################
 ### FPGA Emulator
@@ -104,56 +131,28 @@ set(HARDWARE_LINK_FLAGS -Xshardware ${BOARD_FLAG}=${FPGA_DEVICE} ${USER_HARDWARE
 #    [link]    icpx -fsycl -fintelfpga -qactypes fpga_compile.cpp.o -o fpga_compile.fpga_emu
 
 add_library(${EMULATOR_TARGET} SHARED ${HOST_SOURCE_FILE})
-target_link_libraries(${EMULATOR_TARGET} PRIVATE raptor_search_fpga_oneapi_base)
-target_compile_definitions(${EMULATOR_TARGET} PRIVATE -DFPGA_EMULATOR)
-target_compile_options(${EMULATOR_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS} ${EMULATOR_AC_INT_FLAG})
-target_link_options(${EMULATOR_TARGET} PRIVATE ${COMMON_LINK_FLAGS} ${EMULATOR_AC_INT_FLAG})
-export(TARGETS ${EMULATOR_TARGET} NAMESPACE "raptor::fpga::" FILE "raptor_seach_fpga_oneapi_targets.cmake")
+target_link_libraries(${EMULATOR_TARGET} PRIVATE raptor::fpga::interface)
+target_compile_definitions(${EMULATOR_TARGET} PRIVATE FPGA_EMULATOR)
 
-add_custom_target(raptor_fpga_emu DEPENDS ${EMULATOR_TARGET})
-
-foreach(WINDOW_SIZE ${WINDOW_SIZE_LIST})
-    foreach(MIN_IBF_K ${MIN_IBF_K_LIST})
-        if(${WINDOW_SIZE} GREATER ${MIN_IBF_K})
-            foreach(BIN_COUNT ${BIN_COUNT_LIST})
-                foreach(KERNEL_COPYS ${KERNEL_COPYS_LIST})
-                    set(EMULATOR_DEVICE_TARGET ${TARGET_NAME}_kernel_w${WINDOW_SIZE}_k${MIN_IBF_K}_b${BIN_COUNT}_kernels${KERNEL_COPYS}.fpga_emu)
-                    add_library(${EMULATOR_DEVICE_TARGET} SHARED ${DEVICE_SOURCE_FILE})
-                    target_include_directories(${EMULATOR_DEVICE_TARGET} PRIVATE "${RAPTOR_MIN_IBF_FPGA_ROOT}/include")
-                    target_compile_definitions(${EMULATOR_DEVICE_TARGET} PRIVATE -DWINDOW_SIZE=${WINDOW_SIZE} -DMIN_IBF_K=${MIN_IBF_K} -DBIN_COUNT=${BIN_COUNT} -DKERNEL_COPYS=${KERNEL_COPYS})
-                    target_compile_options(${EMULATOR_DEVICE_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS} ${EMULATOR_AC_INT_FLAG})
-                    target_link_options(${EMULATOR_DEVICE_TARGET} PRIVATE ${COMMON_LINK_FLAGS} ${EMULATOR_AC_INT_FLAG})
-                    add_dependencies(raptor_fpga_emu ${EMULATOR_DEVICE_TARGET})
-                endforeach()
-            endforeach()
-        else()
-            message(WARNING "Deselecting w${WINDOW_SIZE}_k${MIN_IBF_K} because window size is not bigger than k-mer size.")
-        endif()
-    endforeach()
-endforeach()
+ITERATE_OVER_COMBINATIONS(
+    GENERATE_TARGET(fpga_emu EMULATOR_DEVICE_TARGET)
+    add_library(${EMULATOR_DEVICE_TARGET} SHARED ${DEVICE_SOURCE_FILE})
+    ADD_COMMON_TARGET_OPTIONS(${EMULATOR_DEVICE_TARGET})
+    target_link_libraries(${EMULATOR_TARGET} PRIVATE ${EMULATOR_DEVICE_TARGET})
+)
 
 ###############################################################################
 ### Generate Report
 ###############################################################################
 
-foreach(WINDOW_SIZE ${WINDOW_SIZE_LIST})
-    foreach(MIN_IBF_K ${MIN_IBF_K_LIST})
-        if(${WINDOW_SIZE} GREATER ${MIN_IBF_K})
-            foreach(BIN_COUNT ${BIN_COUNT_LIST})
-                foreach(KERNEL_COPYS ${KERNEL_COPYS_LIST})
-                    set(FPGA_EARLY_IMAGE ${TARGET_NAME}_kernel_w${WINDOW_SIZE}_k${MIN_IBF_K}_b${BIN_COUNT}_kernels${KERNEL_COPYS}_report.a)
-                    # The compile output is not an executable, but an intermediate compilation result unique to SYCL.
-                    add_executable(${FPGA_EARLY_IMAGE} ${DEVICE_SOURCE_FILE})
-                    target_include_directories(${FPGA_EARLY_IMAGE} PRIVATE "${RAPTOR_MIN_IBF_FPGA_ROOT}/include")
-                    target_compile_definitions(${FPGA_EARLY_IMAGE} PRIVATE -DWINDOW_SIZE=${WINDOW_SIZE} -DMIN_IBF_K=${MIN_IBF_K} -DBIN_COUNT=${BIN_COUNT} -DKERNEL_COPYS=${KERNEL_COPYS})
-                    target_compile_options(${FPGA_EARLY_IMAGE} PRIVATE ${COMMON_COMPILE_FLAGS} -qactypes)
-                    target_link_options(${FPGA_EARLY_IMAGE} PRIVATE ${COMMON_LINK_FLAGS} ${HARDWARE_LINK_FLAGS} -fsycl-link=early)
-                    # fsycl-link=early stops the compiler after RTL generation, before invoking Quartus®
-                endforeach()
-            endforeach()
-        endif()
-    endforeach()
-endforeach()
+ITERATE_OVER_COMBINATIONS(
+    GENERATE_TARGET(a FPGA_EARLY_IMAGE)
+    # The compile output is not an executable, but an intermediate compilation result unique to SYCL.
+    # fsycl-link=early stops the compiler after RTL generation, before invoking Quartus®
+    add_executable(${FPGA_EARLY_IMAGE} ${DEVICE_SOURCE_FILE})
+    ADD_COMMON_TARGET_OPTIONS(${FPGA_EARLY_IMAGE})
+    target_link_options(${FPGA_EARLY_IMAGE} PRIVATE ${HARDWARE_LINK_FLAGS} -fsycl-link=early)
+)
 
 ###############################################################################
 ### FPGA Hardware
@@ -165,33 +164,16 @@ endforeach()
 #   [link]    icpx -fsycl -fintelfpga -qactypes -Xshardware -Xstarget=<FPGA_DEVICE> ac_fixed.cpp.o -o ac_fixed.fpga
 
 add_library(${FPGA_TARGET} SHARED EXCLUDE_FROM_ALL ${HOST_SOURCE_FILE})
-target_link_libraries(${FPGA_TARGET} PRIVATE raptor_search_fpga_oneapi_base)
-target_compile_definitions(${FPGA_TARGET} PRIVATE -DFPGA_HARDWARE)
-target_compile_options(${FPGA_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS} -qactypes)
-target_link_options(${FPGA_TARGET} PRIVATE ${COMMON_LINK_FLAGS} -qactypes)
-export(TARGETS ${FPGA_TARGET} NAMESPACE "raptor::fpga::" APPEND FILE "raptor_seach_fpga_oneapi_targets.cmake")
+target_link_libraries(${FPGA_TARGET} PRIVATE raptor::fpga::interface)
+target_compile_definitions(${FPGA_TARGET} PRIVATE FPGA_HARDWARE)
 
-add_custom_target(raptor_fpga DEPENDS ${FPGA_TARGET})
-
-foreach(WINDOW_SIZE ${WINDOW_SIZE_LIST})
-    foreach(MIN_IBF_K ${MIN_IBF_K_LIST})
-        if(${WINDOW_SIZE} GREATER ${MIN_IBF_K})
-            foreach(BIN_COUNT ${BIN_COUNT_LIST})
-                foreach(KERNEL_COPYS ${KERNEL_COPYS_LIST})
-                    set(FPGA_DEVICE_TARGET ${TARGET_NAME}_kernel_w${WINDOW_SIZE}_k${MIN_IBF_K}_b${BIN_COUNT}_kernels${KERNEL_COPYS}.fpga)
-                    add_library(${FPGA_DEVICE_TARGET} SHARED EXCLUDE_FROM_ALL ${DEVICE_SOURCE_FILE})
-                    target_include_directories(${FPGA_DEVICE_TARGET} PRIVATE "${RAPTOR_MIN_IBF_FPGA_ROOT}/include")
-                    target_compile_definitions(${FPGA_DEVICE_TARGET} PRIVATE -DWINDOW_SIZE=${WINDOW_SIZE} -DMIN_IBF_K=${MIN_IBF_K} -DBIN_COUNT=${BIN_COUNT} -DKERNEL_COPYS=${KERNEL_COPYS})
-                    target_compile_options(${FPGA_DEVICE_TARGET} PRIVATE ${COMMON_COMPILE_FLAGS} -qactypes)
-                    target_link_options(${FPGA_DEVICE_TARGET} PRIVATE ${COMMON_LINK_FLAGS} -qactypes ${HARDWARE_LINK_FLAGS})
-                    add_dependencies(raptor_fpga ${FPGA_DEVICE_TARGET})
-                endforeach()
-            endforeach()
-        else()
-            message(WARNING "Deselecting w${WINDOW_SIZE}_k${MIN_IBF_K} because window size is not bigger than k-mer size.")
-        endif()
-    endforeach()
-endforeach()
+ITERATE_OVER_COMBINATIONS(
+    GENERATE_TARGET(fpga FPGA_DEVICE_TARGET)
+    add_library(${FPGA_DEVICE_TARGET} SHARED EXCLUDE_FROM_ALL ${DEVICE_SOURCE_FILE})
+    ADD_COMMON_TARGET_OPTIONS(${FPGA_DEVICE_TARGET})
+    target_link_options(${FPGA_DEVICE_TARGET} PRIVATE ${HARDWARE_LINK_FLAGS})
+    target_link_libraries (${FPGA_TARGET} PRIVATE ${FPGA_DEVICE_TARGET})
+)
 
 
 
