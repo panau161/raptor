@@ -19,6 +19,68 @@
 namespace raptor
 {
 
+#if RAPTOR_FPGA
+// Currently only allowing kernels that are created by the build process.
+void fpga_check_kernel(search_arguments const & arguments)
+{
+#    define RAPTOR_STRINGIFY(x) #x
+#    define RAPTOR_TOSTRING(x) RAPTOR_STRINGIFY(x)
+
+    constexpr auto allowed_bins = std::to_array<size_t>({FPGA_BINS});
+    if (!std::ranges::contains(allowed_bins, arguments.bin_path.size()))
+    {
+        throw sharg::parser_error{"The number of bins is not supported. Supported: " RAPTOR_TOSTRING((FPGA_BINS))};
+    }
+    constexpr auto allowed_windows = std::to_array<size_t>({FPGA_WINDOWS});
+    if (!std::ranges::contains(allowed_windows, arguments.window_size))
+    {
+        throw sharg::parser_error{"The window_size is not supported. Supported: " RAPTOR_TOSTRING((FPGA_WINDOWS))};
+    }
+    constexpr auto allowed_kmers = std::to_array<size_t>({FPGA_KMERS});
+    if (!std::ranges::contains(allowed_kmers, arguments.shape_size))
+    {
+        throw sharg::parser_error{"The kmer_size is not supported. Supported: " RAPTOR_TOSTRING((FPGA_KMERS))};
+    }
+    constexpr auto allowed_kernels = std::to_array<size_t>({FPGA_KERNELS});
+    if (!std::ranges::contains(allowed_kernels, arguments.kernels))
+    {
+        throw sharg::parser_error{
+            "The number of kernels is not supported. Supported: " RAPTOR_TOSTRING((FPGA_KERNELS))};
+    }
+#    undef RAPTOR_STRINGIFY
+#    undef RAPTOR_TOSTRING
+}
+
+void fpga_checks(search_arguments const & arguments, size_t const max_query_length)
+{
+    if (arguments.shape_size == arguments.window_size)
+    {
+        throw sharg::parser_error{"The k-mer size and the window size are equal. This is not supported."};
+    }
+    if (arguments.shape_weight != arguments.shape_size)
+    {
+        throw sharg::parser_error{"The gapped k-mers are not supported."};
+    }
+    if (!std::isnan(arguments.threshold))
+    {
+        throw sharg::parser_error{"The percentage threshold is not supported."};
+    }
+    if (arguments.parts != 1u)
+    {
+        throw sharg::parser_error{"The partitioned index is not supported."};
+    }
+    if (arguments.is_hibf)
+    {
+        throw sharg::parser_error{"The HIBF index is not supported."};
+    }
+    if (max_query_length > 250u)
+    {
+        throw sharg::parser_error{"The query length is too long. The maximum is 250."};
+    }
+    fpga_check_kernel(arguments);
+}
+#endif
+
 void init_search_parser(sharg::parser & parser, search_arguments & arguments)
 {
     init_shared_meta(parser);
@@ -52,6 +114,10 @@ void init_search_parser(sharg::parser & parser, search_arguments & arguments)
                                     .description = "",
                                     .required = true,
                                     .validator = output_file_validator{}});
+#if RAPTOR_FPGA
+    parser.add_flag(arguments.use_fpga,
+                    sharg::config{.short_id = '\0', .long_id = "fpga", .description = "Use the FPGA."});
+#endif
     parser.add_option(arguments.threads,
                       sharg::config{.short_id = '\0',
                                     .long_id = "threads",
@@ -241,6 +307,11 @@ void search_parsing(sharg::parser & parser)
         for (size_t part{1u}; part < arguments.parts; ++part)
             index_validator(index_path_base + std::to_string(part));
     }
+
+#if RAPTOR_FPGA
+    if (arguments.use_fpga)
+        fpga_checks(arguments, max_query_length);
+#endif
 
     // ==========================================
     // Dispatch

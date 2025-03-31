@@ -21,6 +21,7 @@ if (NOT CMAKE_BUILD_TYPE)
 endif ()
 
 include (${CMAKE_CURRENT_LIST_DIR}/cmake/configuration.cmake)
+include (${CMAKE_CURRENT_LIST_DIR}/cmake/fpga_config.cmake)
 
 add_subdirectory (src)
 

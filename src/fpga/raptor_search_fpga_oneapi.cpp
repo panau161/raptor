@@ -13,6 +13,28 @@
 #include <raptor/fpga/min_ibf_fpga_oneapi.hpp>
 #include <raptor/threshold/threshold.hpp>
 
+#ifndef FPGA_BINS
+#    error "FPGA_BINS is not defined."
+#endif
+
+#define RAPTOR_CASE_MACRO(VALUE)                                                                                       \
+    case VALUE:                                                                                                        \
+        process.template operator()<VALUE>();                                                                          \
+        break;
+
+// https://www.scs.stanford.edu/~dm/blog/va-opt.html#the-for_each-macro
+#define PARENS ()
+
+#define RAPTOR_EXPAND(...) RAPTOR_EXPAND4(RAPTOR_EXPAND4(RAPTOR_EXPAND4(RAPTOR_EXPAND4(__VA_ARGS__))))
+#define RAPTOR_EXPAND4(...) RAPTOR_EXPAND3(RAPTOR_EXPAND3(RAPTOR_EXPAND3(RAPTOR_EXPAND3(__VA_ARGS__))))
+#define RAPTOR_EXPAND3(...) RAPTOR_EXPAND2(RAPTOR_EXPAND2(RAPTOR_EXPAND2(RAPTOR_EXPAND2(__VA_ARGS__))))
+#define RAPTOR_EXPAND2(...) RAPTOR_EXPAND1(RAPTOR_EXPAND1(RAPTOR_EXPAND1(RAPTOR_EXPAND1(__VA_ARGS__))))
+#define RAPTOR_EXPAND1(...) __VA_ARGS__
+
+#define RAPTOR_FOR_EACH(macro, ...) __VA_OPT__(RAPTOR_EXPAND(RAPTOR_FOR_EACH_HELPER(macro, __VA_ARGS__)))
+#define RAPTOR_FOR_EACH_HELPER(macro, a1, ...) macro(a1) __VA_OPT__(RAPTOR_FOR_EACH_AGAIN PARENS(macro, __VA_ARGS__))
+#define RAPTOR_FOR_EACH_AGAIN() RAPTOR_FOR_EACH_HELPER
+
 class fpga_thresholder : raptor::threshold::threshold
 {
 private:
@@ -45,7 +67,7 @@ public:
     }
 };
 
-void raptor_search_fpga_oneapi(raptor::search_fpga_arguments const & arguments)
+void raptor_search_fpga_oneapi(raptor::search_arguments const & arguments)
 {
     std::vector<size_t> thresholds;
     size_t minimal_number_of_minimizers{};
@@ -77,25 +99,10 @@ void raptor_search_fpga_oneapi(raptor::search_fpga_arguments const & arguments)
         ibf.count(arguments.query_file, arguments.out_file);
     };
 
-    // Generate all possible host code specialisations
     switch (chunk_bits)
     {
-    case 64:
-        process.template operator()<64>();
-        break;
-    // case 128:
-    //     process.template operator()<128>();
-    //     break;
-    // case 256:
-    //     process.template operator()<256>();
-    //     break;
-    // case 512:
-    //     process.template operator()<512>();
-    //     break;
+        RAPTOR_FOR_EACH(RAPTOR_CASE_MACRO, FPGA_BINS)
     default:
         seqan::hibf::unreachable();
-        // Todo: Should be checked when parsing arguments.
-        // std::cerr << "[Error] Unsupported number of bins." << std::endl;
-        // exit(EXIT_FAILURE);
     }
 }
