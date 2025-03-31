@@ -17,24 +17,6 @@
 #    error "FPGA_BINS is not defined."
 #endif
 
-#define RAPTOR_CASE_MACRO(VALUE)                                                                                       \
-    case VALUE:                                                                                                        \
-        process.template operator()<VALUE>();                                                                          \
-        break;
-
-// https://www.scs.stanford.edu/~dm/blog/va-opt.html#the-for_each-macro
-#define PARENS ()
-
-#define RAPTOR_EXPAND(...) RAPTOR_EXPAND4(RAPTOR_EXPAND4(RAPTOR_EXPAND4(RAPTOR_EXPAND4(__VA_ARGS__))))
-#define RAPTOR_EXPAND4(...) RAPTOR_EXPAND3(RAPTOR_EXPAND3(RAPTOR_EXPAND3(RAPTOR_EXPAND3(__VA_ARGS__))))
-#define RAPTOR_EXPAND3(...) RAPTOR_EXPAND2(RAPTOR_EXPAND2(RAPTOR_EXPAND2(RAPTOR_EXPAND2(__VA_ARGS__))))
-#define RAPTOR_EXPAND2(...) RAPTOR_EXPAND1(RAPTOR_EXPAND1(RAPTOR_EXPAND1(RAPTOR_EXPAND1(__VA_ARGS__))))
-#define RAPTOR_EXPAND1(...) __VA_ARGS__
-
-#define RAPTOR_FOR_EACH(macro, ...) __VA_OPT__(RAPTOR_EXPAND(RAPTOR_FOR_EACH_HELPER(macro, __VA_ARGS__)))
-#define RAPTOR_FOR_EACH_HELPER(macro, a1, ...) macro(a1) __VA_OPT__(RAPTOR_FOR_EACH_AGAIN PARENS(macro, __VA_ARGS__))
-#define RAPTOR_FOR_EACH_AGAIN() RAPTOR_FOR_EACH_HELPER
-
 class fpga_thresholder : raptor::threshold::threshold
 {
 private:
@@ -50,8 +32,7 @@ public:
 
     std::vector<size_t> get_thresholds() const
     {
-        if (threshold_kind != threshold_kinds::probabilistic)
-            throw std::runtime_error{"Only probabilistic thresholds are supported."}; // TODO: argparse
+        assert(threshold_kind == threshold_kinds::probabilistic);
 
         std::vector<size_t> result;
 
@@ -99,10 +80,12 @@ void raptor_search_fpga_oneapi(raptor::search_arguments const & arguments)
         ibf.count(arguments.query_file, arguments.out_file);
     };
 
-    switch (chunk_bits)
+    constexpr auto allowed_bins = std::to_array<size_t>({FPGA_BINS});
+
+    // Same as `for (size_t bin : allowed_bins) { if (chunk_bits == bin) { process.template operator()<bin>(); break; } }`
+    // but constexpr evaluated, such that templates are instantiated.
+    [&]<size_t... idx>(std::index_sequence<idx...>)
     {
-        RAPTOR_FOR_EACH(RAPTOR_CASE_MACRO, FPGA_BINS)
-    default:
-        seqan::hibf::unreachable();
-    }
+        ((chunk_bits == allowed_bins[idx] ? (process.template operator()<allowed_bins[idx]>(), void()) : void()), ...);
+    }(std::make_index_sequence<allowed_bins.size()>{});
 }
