@@ -10,7 +10,7 @@
 #include <hibf/misc/unreachable.hpp>
 
 #include <raptor/argument_parsing/search_arguments.hpp>
-#include <raptor/fpga/min_ibf_fpga_oneapi.hpp>
+#include <raptor/search/fpga/min_ibf_fpga_oneapi.hpp>
 #include <raptor/threshold/threshold.hpp>
 
 #ifndef FPGA_BINS
@@ -48,7 +48,7 @@ public:
     }
 };
 
-void raptor_search_fpga_oneapi(raptor::search_arguments const & arguments)
+void search_fpga(raptor::search_arguments const & arguments)
 {
     std::vector<size_t> thresholds;
     size_t minimal_number_of_minimizers{};
@@ -81,6 +81,7 @@ void raptor_search_fpga_oneapi(raptor::search_arguments const & arguments)
     };
 
     constexpr auto allowed_bins = std::to_array<size_t>({FPGA_BINS});
+    static_assert(!std::empty(allowed_bins));
 
     // Same as `for (size_t bin : allowed_bins) { if (chunk_bits == bin) { process.template operator()<bin>(); break; } }`
     // but constexpr evaluated, such that templates are instantiated.

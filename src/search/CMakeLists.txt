@@ -9,5 +9,16 @@ if (TARGET raptor::search)
 endif ()
 
 add_library ("raptor_search" STATIC raptor_search.cpp search_hibf.cpp search_ibf.cpp search_partitioned_ibf.cpp)
-target_link_libraries ("raptor_search" PUBLIC "raptor::interface" "raptor_search_fpga_oneapi_lib.fpga_emu")
+target_link_libraries ("raptor_search" PUBLIC "raptor::interface")
+
+option (RAPTOR_FPGA_HARDWARE "Compile for FPGA hardware" OFF)
+add_subdirectory (fpga)
+if (TARGET raptor::fpga::interface)
+    if (RAPTOR_FPGA_HARDWARE)
+        target_link_libraries ("raptor_search" PUBLIC "raptor::fpga::hardware")
+    else ()
+        target_link_libraries ("raptor_search" PUBLIC "raptor::fpga::emulated")
+    endif ()
+endif ()
+
 add_library (raptor::search ALIAS raptor_search)

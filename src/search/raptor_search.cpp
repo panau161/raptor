@@ -11,7 +11,7 @@
 #include <raptor/search/search_ibf.hpp>
 #include <raptor/search/search_partitioned_ibf.hpp>
 
-void raptor_search_fpga_oneapi(raptor::search_arguments const & arguments);
+void search_fpga(raptor::search_arguments const & arguments);
 
 namespace raptor
 {
@@ -26,7 +26,7 @@ void raptor_search(search_arguments const & arguments)
     {
 #if RAPTOR_FPGA
         if (arguments.use_fpga)
-            raptor_search_fpga_oneapi(arguments);
+            search_fpga(arguments);
         else
 #endif
             search_ibf(arguments);

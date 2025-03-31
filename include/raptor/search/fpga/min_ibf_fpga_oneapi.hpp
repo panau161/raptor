@@ -163,12 +163,12 @@ public:
         constexpr std::string_view library_suffix = []()
         {
             if constexpr (is_emulator)
-                return ".fpga_emu.so";
+                return ".emulated.so";
             else
-                return ".fpga.so";
+                return ".so";
         }();
 
-        return std::format("libraptor_search_fpga_oneapi_lib_kernel_w{}_k{}_b{}_kernels{}{}",
+        return std::format("libraptor_search_fpga_kernel_w{}_k{}_b{}_kernels{}{}",
                            index.window_size(),
                            index.shape().size(),
                            technical_bins,

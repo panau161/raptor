@@ -1,8 +1,13 @@
-target_compile_definitions (raptor_interface INTERFACE RAPTOR_FPGA=1)
+if (NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "IntelLLVM")
+    target_compile_definitions (raptor_interface INTERFACE RAPTOR_FPGA=0)
+    return ()
+endif ()
 
 if (TARGET raptor::fpga::interface)
     return ()
 endif ()
+
+target_compile_definitions (raptor_interface INTERFACE RAPTOR_FPGA=1)
 
 set (RAPTOR_MIN_IBF_FPGA_ROOT "" CACHE STRING "")
 if (NOT EXISTS "${RAPTOR_MIN_IBF_FPGA_ROOT}/include/min_ibf_fpga/")
@@ -15,7 +20,8 @@ if (NOT DEFINED FPGA_DEVICE)
 
     execute_process (COMMAND aoc -list-boards
                      OUTPUT_VARIABLE output
-                     OUTPUT_STRIP_TRAILING_WHITESPACE)
+                     OUTPUT_STRIP_TRAILING_WHITESPACE
+                     ERROR_QUIET)
 
     foreach (search_string IN LISTS known_boards)
         string (FIND "${output}" "${search_string}" string_pos)
@@ -32,9 +38,9 @@ endif ()
 # Fall back to pre defined device for FPGA board selection
 if (NOT DEFINED FPGA_DEVICE)
     set (FPGA_DEVICE "intel_s10sx_pac:pac_s10_usm")
-    message (STATUS "FPGA_DEVICE was not specified.\
-                    \nConfiguring the design to run on the default FPGA board ${FPGA_DEVICE}.\
-                    \nPlease refer to the README for information on board selection.")
+    message (STATUS "FPGA_DEVICE was not specified.\n"
+                    "   Configuring the design to run on the default FPGA board ${FPGA_DEVICE}.\n"
+                    "   Please refer to the README for information on board selection.")
 else ()
     message (STATUS "Configuring the design to run on FPGA board ${FPGA_DEVICE}")
 endif ()
@@ -47,33 +53,27 @@ target_compile_options (raptor_fpga_interface INTERFACE "-fsycl" "-fintelfpga" "
 target_link_options (raptor_fpga_interface INTERFACE "-fsycl" "-fintelfpga" "-Xshyper-optimized-handshaking=off" "-qactypes")
 add_library (raptor::fpga::interface ALIAS raptor_fpga_interface)
 
-set (HOST_SOURCE_FILE raptor_search_fpga_oneapi.cpp)
-set (DEVICE_SOURCE_FILE "${RAPTOR_MIN_IBF_FPGA_ROOT}/src/fpga_device.cpp")
-set (TARGET_NAME raptor_search_fpga_oneapi_lib)
-set (EMULATOR_TARGET ${TARGET_NAME}.fpga_emu)
-set (FPGA_TARGET ${TARGET_NAME}.fpga)
-
 if (NOT DEFINED WINDOW_SIZE_LIST)
-    message (STATUS "No WINDOW_SIZE_LIST supplied. Defaulting to '23'.")
-    set (WINDOW_SIZE_LIST "23")
+    set (WINDOW_SIZE_LIST 23)
+    message (STATUS "No WINDOW_SIZE_LIST supplied. Defaulting to '${WINDOW_SIZE_LIST}'.")
 endif ()
 list (JOIN WINDOW_SIZE_LIST "," WINDOW_SIZE_STRING)
 
 if (NOT DEFINED MIN_IBF_K_LIST)
-    message (STATUS "No MIN_IBF_K_LIST supplied. Defaulting to '19'.")
-    set (MIN_IBF_K_LIST "19")
+    set (MIN_IBF_K_LIST 19)
+    message (STATUS "No MIN_IBF_K_LIST supplied. Defaulting to '${MIN_IBF_K_LIST}'.")
 endif ()
 list (JOIN MIN_IBF_K_LIST "," MIN_IBF_K_STRING)
 
 if (NOT DEFINED BIN_COUNT_LIST)
-    message (STATUS "No BIN_COUNT_LIST supplied. Defaulting to '64;8192'.")
     set (BIN_COUNT_LIST 64 8192)
+    message (STATUS "No BIN_COUNT_LIST supplied. Defaulting to '${BIN_COUNT_LIST}'.")
 endif ()
 list (JOIN BIN_COUNT_LIST "," BIN_COUNT_STRING)
 
 if (NOT DEFINED KERNEL_COPYS_LIST)
-    message (STATUS "No KERNEL_COPYS_LIST supplied. Defaulting to '1;2'.")
-    set (KERNEL_COPYS_LIST "1;2")
+    set (KERNEL_COPYS_LIST 1 2)
+    message (STATUS "No KERNEL_COPYS_LIST supplied. Defaulting to '${KERNEL_COPYS_LIST}'.")
 endif ()
 list (JOIN KERNEL_COPYS_LIST "," KERNEL_COPYS_STRING)
 
