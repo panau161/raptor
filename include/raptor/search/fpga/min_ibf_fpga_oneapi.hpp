@@ -24,6 +24,9 @@
 #include <sycl/ext/intel/fpga_extensions.hpp>
 #include <sycl/sycl.hpp>
 
+namespace raptor
+{
+
 template <size_t chunk_bits, bool profile = false>
 class min_ibf_fpga_oneapi
 {
@@ -554,3 +557,5 @@ private:
         return std::chrono::duration_cast<timeUnit>(duration).count();
     }
 };
+
+} // namespace raptor

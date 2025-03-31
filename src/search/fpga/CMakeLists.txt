@@ -44,7 +44,7 @@ add_library (raptor::fpga::emulated ALIAS raptor_search_fpga.emulated)
 #   [compile] icpx -fsycl -fintelfpga -qactypes -o ac_fixed.cpp.o -c ac_fixed.cpp
 #   [link]    icpx -fsycl -fintelfpga -qactypes -Xshardware -Xstarget=<FPGA_DEVICE> ac_fixed.cpp.o -o ac_fixed.fpga
 
-add_library (raptor_search_fpga STATIC EXCLUDE_FROM_ALL search_fpga.cpp)
+add_library (raptor_search_fpga SHARED search_fpga.cpp)
 target_link_libraries (raptor_search_fpga PRIVATE raptor::fpga::interface)
 target_compile_definitions (raptor_search_fpga PRIVATE FPGA_HARDWARE)
 add_library (raptor::fpga::hardware ALIAS raptor_search_fpga)

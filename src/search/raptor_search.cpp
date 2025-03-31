@@ -7,11 +7,10 @@
  * \author Enrico Seiler <enrico.seiler AT fu-berlin.de>
  */
 
+#include <raptor/search/fpga/search_fpga.hpp>
 #include <raptor/search/search_hibf.hpp>
 #include <raptor/search/search_ibf.hpp>
 #include <raptor/search/search_partitioned_ibf.hpp>
-
-void search_fpga(raptor::search_arguments const & arguments);
 
 namespace raptor
 {

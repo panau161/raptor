@@ -9,13 +9,16 @@
 
 #include <hibf/misc/unreachable.hpp>
 
-#include <raptor/argument_parsing/search_arguments.hpp>
 #include <raptor/search/fpga/min_ibf_fpga_oneapi.hpp>
+#include <raptor/search/fpga/search_fpga.hpp>
 #include <raptor/threshold/threshold.hpp>
 
 #ifndef FPGA_BINS
 #    error "FPGA_BINS is not defined."
 #endif
+
+namespace raptor
+{
 
 class fpga_thresholder : raptor::threshold::threshold
 {
@@ -48,7 +51,7 @@ public:
     }
 };
 
-void search_fpga(raptor::search_arguments const & arguments)
+void search_fpga(search_arguments const & arguments)
 {
     std::vector<size_t> thresholds;
     size_t minimal_number_of_minimizers{};
@@ -90,3 +93,5 @@ void search_fpga(raptor::search_arguments const & arguments)
         ((chunk_bits == allowed_bins[idx] ? (process.template operator()<allowed_bins[idx]>(), void()) : void()), ...);
     }(std::make_index_sequence<allowed_bins.size()>{});
 }
+
+} // namespace raptor
