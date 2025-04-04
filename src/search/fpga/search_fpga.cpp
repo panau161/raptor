@@ -11,6 +11,7 @@
 
 #include <raptor/search/fpga/min_ibf_fpga_oneapi.hpp>
 #include <raptor/search/fpga/search_fpga.hpp>
+#include <raptor/search/sync_out.hpp>
 #include <raptor/threshold/threshold.hpp>
 
 #ifndef FPGA_BINS
@@ -62,35 +63,42 @@ void search_fpga(search_arguments const & arguments)
         std::tie(minimal_number_of_minimizers, maximal_number_of_minimizers) = thresholder.get_minmax();
     }
 
-    size_t bins{arguments.bin_path.size()};
-    size_t technical_bins{seqan::hibf::next_multiple_of_64(bins)};
+    size_t const bins{arguments.bin_path.size()};
+    size_t const technical_bins{seqan::hibf::next_multiple_of_64(bins)};
     assert(bins == technical_bins); // Todo: Important?
 
     constexpr bool profile = true;
 
-    size_t const chunk_bits = std::min<size_t>(technical_bins, MAX_BUS_WIDTH);
+    // size_t const chunk_bits = std::min<size_t>(technical_bins, MAX_BUS_WIDTH);
+    // assert(MAX_BUS_WIDTH <= 512);
 
-    assert(MAX_BUS_WIDTH <= 512);
-
-    auto process = [&]<size_t chunk_bits>()
+    auto process = [&]<size_t technical_bins>()
     {
-        min_ibf_fpga_oneapi<chunk_bits, profile> ibf(arguments.index_file,
-                                                     minimal_number_of_minimizers,
-                                                     maximal_number_of_minimizers,
-                                                     std::move(thresholds),
-                                                     arguments.buffer,
-                                                     arguments.kernels);
+        min_ibf_fpga_oneapi<technical_bins, profile> ibf(arguments.index_file,
+                                                         minimal_number_of_minimizers,
+                                                         maximal_number_of_minimizers,
+                                                         std::move(thresholds),
+                                                         arguments.buffer,
+                                                         arguments.kernels);
+
+        {
+            // Todo: Not so elegant. min_ibf_fpga_oneapi also needs to open the file in append mode for this to work.
+            sync_out synced_out{arguments};
+            synced_out.write_header(arguments, ibf.hash_function_count());
+        }
+
         ibf.count(arguments.query_file, arguments.out_file);
     };
 
     constexpr auto allowed_bins = std::to_array<size_t>({FPGA_BINS});
     static_assert(!std::empty(allowed_bins));
 
-    // Same as `for (size_t bin : allowed_bins) { if (chunk_bits == bin) { process.template operator()<bin>(); break; } }`
+    // Same as `for (size_t bin : allowed_bins) { if (technical_bins == bin) { process.template operator()<bin>(); break; } }`
     // but constexpr evaluated, such that templates are instantiated.
     [&]<size_t... idx>(std::index_sequence<idx...>)
     {
-        ((chunk_bits == allowed_bins[idx] ? (process.template operator()<allowed_bins[idx]>(), void()) : void()), ...);
+        ((technical_bins == allowed_bins[idx] ? (process.template operator()<allowed_bins[idx]>(), void()) : void()),
+         ...);
     }(std::make_index_sequence<allowed_bins.size()>{});
 }
 

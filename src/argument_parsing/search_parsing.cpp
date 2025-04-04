@@ -79,6 +79,24 @@ void fpga_checks(search_arguments const & arguments, size_t const max_query_leng
     }
     fpga_check_kernel(arguments);
 }
+
+void init_fpga_parser(sharg::parser & parser, search_arguments & arguments)
+{
+    parser.add_subsection("FPGA options");
+    parser.add_flag(arguments.use_fpga,
+                    sharg::config{.short_id = '\0', .long_id = "fpga", .description = "Use the FPGA."});
+    parser.add_option(
+        arguments.buffer,
+        sharg::config{.short_id = '\0', .long_id = "buffers", .description = "The number of buffers to use."});
+    parser.add_option(
+        arguments.kernels,
+        sharg::config{.short_id = '\0', .long_id = "kernels", .description = "The number of kernels to use."});
+}
+#else
+void fpga_checks(search_arguments const &, size_t const)
+{}
+void init_fpga_parser(sharg::parser & search_arguments &)
+{}
 #endif
 
 void init_search_parser(sharg::parser & parser, search_arguments & arguments)
@@ -114,10 +132,6 @@ void init_search_parser(sharg::parser & parser, search_arguments & arguments)
                                     .description = "",
                                     .required = true,
                                     .validator = output_file_validator{}});
-#if RAPTOR_FPGA
-    parser.add_flag(arguments.use_fpga,
-                    sharg::config{.short_id = '\0', .long_id = "fpga", .description = "Use the FPGA."});
-#endif
     parser.add_option(arguments.threads,
                       sharg::config{.short_id = '\0',
                                     .long_id = "threads",
@@ -132,6 +146,8 @@ void init_search_parser(sharg::parser & parser, search_arguments & arguments)
                                     .long_id = "timing-output",
                                     .description = "Write time and memory usage to specified file (TSV format).",
                                     .validator = output_file_validator{}});
+
+    init_fpga_parser(parser, arguments);
 
     parser.add_subsection("Threshold method options");
     parser.add_line("\\fBIf no option is set, --error " + std::to_string(arguments.errors)
@@ -308,10 +324,8 @@ void search_parsing(sharg::parser & parser)
             index_validator(index_path_base + std::to_string(part));
     }
 
-#if RAPTOR_FPGA
     if (arguments.use_fpga)
         fpga_checks(arguments, max_query_length);
-#endif
 
     // ==========================================
     // Dispatch

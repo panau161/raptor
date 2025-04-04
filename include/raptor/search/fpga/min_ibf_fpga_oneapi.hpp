@@ -161,22 +161,18 @@ public:
         }
     }
 
+    size_t hash_function_count() const
+    {
+        return index.ibf().hash_function_count();
+    }
+
     std::string get_library_name() const
     {
-        constexpr std::string_view library_suffix = []()
-        {
-            if constexpr (is_emulator)
-                return ".emulated.so";
-            else
-                return ".so";
-        }();
-
-        return std::format("libraptor_search_fpga_kernel_w{}_k{}_b{}_kernels{}{}",
+        return std::format("libraptor_search_fpga_kernel_w{}_k{}_b{}_kernels{}.so",
                            index.window_size(),
                            index.shape().size(),
                            technical_bins,
-                           numberOfKernelCopys,
-                           library_suffix);
+                           numberOfKernelCopys);
     }
 
     void count(std::filesystem::path const & query_path, std::filesystem::path const & output_path)
@@ -193,7 +189,7 @@ public:
         Chunk const * ibfData_host = reinterpret_cast<Chunk const *>(index.ibf().data());
 
         auto ibfData_device = malloc_device_utilities<Chunk>(number_of_chunks);
-        setupEvents[1] = utilitiesQueue.memcpy(ibfData_device.get(), ibfData_host, number_of_chunks * sizeof(Chunk));
+        setupEvents[1] = utilitiesQueue.copy(ibfData_host, ibfData_device.get(), number_of_chunks);
 
         if constexpr (profile)
         {
@@ -238,12 +234,10 @@ public:
         static_assert(sizeof(HostSizeType) == sizeof(size_t));
 
         auto thresholds_device = malloc_device_utilities<HostSizeType>(thresholds_size_t.size());
-        //setupEvents[0] = utilitiesQueue.copy(thresholds_device, thresholds_size_t.data(), thresholds_size_t.size()); // typed API does not seem to work
-        setupEvents[0] = utilitiesQueue.memcpy(thresholds_device.get(),
-                                               thresholds_size_t.data(),
-                                               thresholds_size_t.size() * sizeof(HostSizeType));
+        HostSizeType const * thresholds_host = reinterpret_cast<HostSizeType const *>(thresholds_size_t.data());
+        setupEvents[0] = utilitiesQueue.copy(thresholds_host, thresholds_device.get(), thresholds_size_t.size());
 
-        std::ofstream outputStream(output_path, std::ios::out);
+        std::ofstream outputStream(output_path, std::ios::app);
         std::string result_string{};
 
         for (buffer_data & state : double_buffer)
@@ -363,7 +357,10 @@ public:
                         }
                     }
                 }
-                result_string += '\n';
+                if (auto & last_char = result_string.back(); last_char == ',')
+                    last_char = '\n';
+                else
+                    result_string += '\n';
             }
 
             outputStream << result_string;

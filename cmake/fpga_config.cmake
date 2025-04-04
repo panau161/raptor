@@ -85,7 +85,7 @@ endif ()
 list (JOIN MIN_IBF_K_LIST "," MIN_IBF_K_STRING)
 
 if (NOT DEFINED BIN_COUNT_LIST)
-    set (BIN_COUNT_LIST 64 8192)
+    set (BIN_COUNT_LIST 64 128)
     raptor_config_print ("  No BIN_COUNT_LIST supplied. Defaulting to '${BIN_COUNT_LIST}'.")
 endif ()
 list (JOIN BIN_COUNT_LIST "," BIN_COUNT_STRING)
