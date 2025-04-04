@@ -5,11 +5,7 @@
 
 cmake_minimum_required (VERSION 3.25...3.30)
 
-if (NOT TARGET raptor::fpga::interface)
-    return ()
-endif ()
-
-if (TARGET raptor::fpga::hardware OR TARGET raptor::fpga::emulated)
+if (TARGET raptor::fpga::search)
     return ()
 endif ()
 
@@ -24,10 +20,12 @@ set_source_files_properties (search_fpga.cpp PROPERTIES COMPILE_DEFINITIONS "FPG
 #    [compile] icpx -fsycl -fintelfpga -qactypes -DFPGA_EMULATOR -o fpga_compile.cpp.o -c fpga_compile.cpp
 #    [link]    icpx -fsycl -fintelfpga -qactypes fpga_compile.cpp.o -o fpga_compile.fpga_emu
 
-add_library (raptor_search_fpga.emulated SHARED search_fpga.cpp)
-target_link_libraries (raptor_search_fpga.emulated PRIVATE raptor::fpga::interface)
-target_compile_definitions (raptor_search_fpga.emulated PRIVATE FPGA_EMULATOR)
-add_library (raptor::fpga::emulated ALIAS raptor_search_fpga.emulated)
+if (NOT RAPTOR_FPGA_HARDWARE)
+    add_library (raptor_search_fpga SHARED search_fpga.cpp)
+    target_link_libraries (raptor_search_fpga PRIVATE raptor::fpga::interface)
+    target_compile_definitions (raptor_search_fpga PRIVATE FPGA_EMULATOR)
+    add_library (raptor::search::fpga ALIAS raptor_search_fpga)
+endif ()
 
 ###############################################################################
 ### Generate Report
@@ -44,10 +42,12 @@ add_library (raptor::fpga::emulated ALIAS raptor_search_fpga.emulated)
 #   [compile] icpx -fsycl -fintelfpga -qactypes -o ac_fixed.cpp.o -c ac_fixed.cpp
 #   [link]    icpx -fsycl -fintelfpga -qactypes -Xshardware -Xstarget=<FPGA_DEVICE> ac_fixed.cpp.o -o ac_fixed.fpga
 
-add_library (raptor_search_fpga SHARED search_fpga.cpp)
-target_link_libraries (raptor_search_fpga PRIVATE raptor::fpga::interface)
-target_compile_definitions (raptor_search_fpga PRIVATE FPGA_HARDWARE)
-add_library (raptor::fpga::hardware ALIAS raptor_search_fpga)
+if (RAPTOR_FPGA_HARDWARE)
+    add_library (raptor_search_fpga SHARED search_fpga.cpp)
+    target_link_libraries (raptor_search_fpga PRIVATE raptor::fpga::interface)
+    target_compile_definitions (raptor_search_fpga PRIVATE FPGA_HARDWARE)
+    add_library (raptor::search::fpga ALIAS raptor_search_fpga)
+endif ()
 
 ###############################################################################
 ### The Loop
@@ -67,26 +67,21 @@ foreach (WINDOW_SIZE IN LISTS WINDOW_SIZE_LIST)
         if (${WINDOW_SIZE} GREATER ${MIN_IBF_K})
             foreach (BIN_COUNT IN LISTS BIN_COUNT_LIST)
                 foreach (KERNEL_COPYS IN LISTS KERNEL_COPYS_LIST)
-                    ## Emulator
-                    generate_target (".emulated" EMULATOR_DEVICE_TARGET)
-                    add_library (${EMULATOR_DEVICE_TARGET} SHARED "${RAPTOR_MIN_IBF_FPGA_ROOT}/src/fpga_device.cpp")
-                    add_common_target_options (${EMULATOR_DEVICE_TARGET})
-                    target_link_libraries (raptor_search_fpga.emulated PRIVATE ${EMULATOR_DEVICE_TARGET})
-
-                    ## Report
-                    generate_target (".a" FPGA_EARLY_IMAGE)
-                    # The compile output is not an executable, but an intermediate compilation result unique to SYCL.
-                    # fsycl-link=early stops the compiler after RTL generation, before invoking Quartus®
-                    add_executable (${FPGA_EARLY_IMAGE} "${RAPTOR_MIN_IBF_FPGA_ROOT}/src/fpga_device.cpp")
-                    add_common_target_options (${FPGA_EARLY_IMAGE})
-                    target_link_options (${FPGA_EARLY_IMAGE} PRIVATE ${HARDWARE_LINK_FLAGS} -fsycl-link=early)
-
-                    ## FPGA
-                    generate_target ("" FPGA_DEVICE_TARGET)
-                    add_library (${FPGA_DEVICE_TARGET} SHARED EXCLUDE_FROM_ALL "${RAPTOR_MIN_IBF_FPGA_ROOT}/src/fpga_device.cpp")
-                    add_common_target_options (${FPGA_DEVICE_TARGET})
-                    target_link_options (${FPGA_DEVICE_TARGET} PRIVATE ${HARDWARE_LINK_FLAGS})
-                    target_link_libraries (raptor_search_fpga PRIVATE ${FPGA_DEVICE_TARGET})
+                    # Generic for both hardware and emulated
+                    generate_target ("" DEVICE_TARGET)
+                    add_library (${DEVICE_TARGET} SHARED "${RAPTOR_MIN_IBF_FPGA_ROOT}/src/fpga_device.cpp")
+                    add_common_target_options (${DEVICE_TARGET})
+                    target_link_libraries (raptor_search_fpga PRIVATE ${DEVICE_TARGET})
+                    # For hardware only
+                    if (RAPTOR_FPGA_HARDWARE)
+                        ## Report
+                        generate_target (".a" FPGA_EARLY_IMAGE)
+                        # The compile output is not an executable, but an intermediate compilation result unique to SYCL.
+                        # fsycl-link=early stops the compiler after RTL generation, before invoking Quartus®
+                        add_executable (${FPGA_EARLY_IMAGE} "${RAPTOR_MIN_IBF_FPGA_ROOT}/src/fpga_device.cpp")
+                        add_common_target_options (${FPGA_EARLY_IMAGE})
+                        target_link_options (${FPGA_EARLY_IMAGE} PRIVATE -fsycl-link=early)
+                    endif ()
                 endforeach ()
             endforeach ()
         else ()
