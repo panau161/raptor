@@ -24,15 +24,17 @@ endif ()
 
 target_compile_definitions (raptor_interface INTERFACE RAPTOR_FPGA=1)
 
-set (RAPTOR_MIN_IBF_FPGA_ROOT "" CACHE STRING "")
-if (NOT EXISTS "${RAPTOR_MIN_IBF_FPGA_ROOT}/include/min_ibf_fpga/")
-    raptor_config_error ("RAPTOR_MIN_IBF_FPGA_ROOT (\"${RAPTOR_MIN_IBF_FPGA_ROOT}\") must point to the root directory of the Raptor FPGA implementation.")
+# CPM ingores DOWNLOAD_ONLY when package overrides are used
+if (DEFINED CPM_ibf-fpga_SOURCE)
+    set (ibf-fpga_SOURCE_DIR "${CPM_ibf-fpga_SOURCE}")
+else ()
+    CPMGetPackage (ibf-fpga)
 endif ()
 
 # Shared Includes between all targets
 add_library (raptor_fpga_interface INTERFACE)
 target_link_libraries (raptor_fpga_interface INTERFACE "raptor::interface")
-target_include_directories (raptor_fpga_interface SYSTEM INTERFACE "${RAPTOR_MIN_IBF_FPGA_ROOT}/include")
+target_include_directories (raptor_fpga_interface SYSTEM INTERFACE "${ibf-fpga_SOURCE_DIR}/include")
 target_compile_options (raptor_fpga_interface INTERFACE "-fsycl" "-fintelfpga" "-Xshyper-optimized-handshaking=off" "-qactypes")
 target_link_options (raptor_fpga_interface INTERFACE "-fsycl" "-fintelfpga" "-Xshyper-optimized-handshaking=off" "-qactypes")
 add_library (raptor::fpga::interface ALIAS raptor_fpga_interface)

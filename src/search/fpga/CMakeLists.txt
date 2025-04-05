@@ -69,7 +69,7 @@ foreach (WINDOW_SIZE IN LISTS WINDOW_SIZE_LIST)
                 foreach (KERNEL_COPYS IN LISTS KERNEL_COPYS_LIST)
                     # Generic for both hardware and emulated
                     generate_target ("" DEVICE_TARGET)
-                    add_library (${DEVICE_TARGET} SHARED "${RAPTOR_MIN_IBF_FPGA_ROOT}/src/fpga_device.cpp")
+                    add_library (${DEVICE_TARGET} SHARED "${ibf-fpga_SOURCE_DIR}/src/fpga_device.cpp")
                     add_common_target_options (${DEVICE_TARGET})
                     target_link_libraries (raptor_search_fpga PRIVATE ${DEVICE_TARGET})
                     # For hardware only
@@ -78,7 +78,7 @@ foreach (WINDOW_SIZE IN LISTS WINDOW_SIZE_LIST)
                         generate_target (".a" FPGA_EARLY_IMAGE)
                         # The compile output is not an executable, but an intermediate compilation result unique to SYCL.
                         # fsycl-link=early stops the compiler after RTL generation, before invoking Quartus®
-                        add_executable (${FPGA_EARLY_IMAGE} "${RAPTOR_MIN_IBF_FPGA_ROOT}/src/fpga_device.cpp")
+                        add_executable (${FPGA_EARLY_IMAGE} "${ibf-fpga_SOURCE_DIR}/src/fpga_device.cpp")
                         add_common_target_options (${FPGA_EARLY_IMAGE})
                         target_link_options (${FPGA_EARLY_IMAGE} PRIVATE -fsycl-link=early)
                     endif ()
