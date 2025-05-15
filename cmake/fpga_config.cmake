@@ -77,6 +77,7 @@ if (RAPTOR_FPGA_HARDWARE)
         message (STATUS "    FPGA_DEVICE was not specified.\n"
                         "         Configuring the design to run on the default FPGA board ${FPGA_DEVICE}.\n"
                         "         Please refer to the README for information on board selection."
+                        "         Please refer to the documentation for information on board selection."
         )
     else ()
         raptor_config_print ("Configuring the design to run on FPGA board ${FPGA_DEVICE}")
